@@ -88,6 +88,9 @@ class SecurePrefs(context: Context) {
     MutableStateFlow(prefs.getBoolean("canvas.debugStatusEnabled", false))
   val canvasDebugStatusEnabled: StateFlow<Boolean> = _canvasDebugStatusEnabled
 
+  private val _gatewayToken = MutableStateFlow(loadGatewayTokenInternal())
+  val gatewayToken: StateFlow<String> = _gatewayToken
+
   private val _wakeWords = MutableStateFlow(loadWakeWords())
   val wakeWords: StateFlow<List<String>> = _wakeWords
 
@@ -153,6 +156,16 @@ class SecurePrefs(context: Context) {
   fun setCanvasDebugStatusEnabled(value: Boolean) {
     prefs.edit { putBoolean("canvas.debugStatusEnabled", value) }
     _canvasDebugStatusEnabled.value = value
+  }
+
+  fun setGatewayToken(value: String) {
+    val trimmed = value.trim()
+    saveGatewayToken(trimmed)
+    _gatewayToken.value = trimmed
+  }
+
+  private fun loadGatewayTokenInternal(): String {
+    return loadGatewayToken().orEmpty()
   }
 
   fun loadGatewayToken(): String? {

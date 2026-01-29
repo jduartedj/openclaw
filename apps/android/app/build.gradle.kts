@@ -21,8 +21,8 @@ android {
     applicationId = "bot.molt.android"
     minSdk = 31
     targetSdk = 36
-    versionCode = 4
-    versionName = "2026.1.4"
+    versionCode = 6
+    versionName = "2026.1.6"
   }
 
   buildTypes {

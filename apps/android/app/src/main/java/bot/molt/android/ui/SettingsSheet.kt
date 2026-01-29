@@ -83,6 +83,7 @@ fun SettingsSheet(viewModel: MainViewModel) {
   val manualPort by viewModel.manualPort.collectAsState()
   val manualTls by viewModel.manualTls.collectAsState()
   val canvasDebugStatusEnabled by viewModel.canvasDebugStatusEnabled.collectAsState()
+  val gatewayToken by viewModel.gatewayToken.collectAsState()
   val statusText by viewModel.statusText.collectAsState()
   val serverName by viewModel.serverName.collectAsState()
   val remoteAddress by viewModel.remoteAddress.collectAsState()
@@ -408,6 +409,14 @@ fun SettingsSheet(viewModel: MainViewModel) {
             supportingContent = { Text("Pin the gateway certificate on first connect.") },
             trailingContent = { Switch(checked = manualTls, onCheckedChange = viewModel::setManualTls, enabled = manualEnabled) },
             modifier = Modifier.alpha(if (manualEnabled) 1f else 0.5f),
+          )
+
+          OutlinedTextField(
+            value = gatewayToken,
+            onValueChange = viewModel::setGatewayToken,
+            label = { Text("Gateway Token") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
           )
 
           val hostOk = manualHost.trim().isNotEmpty()

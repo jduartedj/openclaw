@@ -286,6 +286,7 @@ class NodeRuntime(context: Context) {
   val manualTls: StateFlow<Boolean> = prefs.manualTls
   val lastDiscoveredStableId: StateFlow<String> = prefs.lastDiscoveredStableId
   val canvasDebugStatusEnabled: StateFlow<Boolean> = prefs.canvasDebugStatusEnabled
+  val gatewayToken: StateFlow<String> = prefs.gatewayToken
 
   private var didAutoConnect = false
   private var suppressWakeWordsSync = false
@@ -430,6 +431,10 @@ class NodeRuntime(context: Context) {
 
   fun setCanvasDebugStatusEnabled(value: Boolean) {
     prefs.setCanvasDebugStatusEnabled(value)
+  }
+
+  fun setGatewayToken(value: String) {
+    prefs.setGatewayToken(value)
   }
 
   fun setWakeWords(words: List<String>) {
