@@ -21,8 +21,8 @@ android {
     applicationId = "bot.molt.android"
     minSdk = 31
     targetSdk = 36
-    versionCode = 202601260
-    versionName = "2026.1.27-beta.1"
+    versionCode = 2
+    versionName = "2026.1.2"
   }
 
   buildTypes {
@@ -114,6 +114,9 @@ dependencies {
 
   // Unicast DNS-SD (Wide-Area Bonjour) for tailnet discovery domains.
   implementation("dnsjava:dnsjava:3.6.4")
+
+  // BouncyCastle for Ed25519 key generation
+  implementation("org.bouncycastle:bcprov-jdk18on:1.80")
 
   testImplementation("junit:junit:4.13.2")
   testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
