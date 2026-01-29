@@ -529,7 +529,7 @@ class NodeRuntime(context: Context) {
       caps = buildCapabilities(),
       commands = buildInvokeCommands(),
       permissions = emptyMap(),
-      client = buildClientInfo(clientId = "moltbot-android", clientMode = "node"),
+      client = buildClientInfo(clientId = "clawdbot-android", clientMode = "node"),
       userAgent = buildUserAgent(),
     )
   }
@@ -541,7 +541,7 @@ class NodeRuntime(context: Context) {
       caps = emptyList(),
       commands = emptyList(),
       permissions = emptyMap(),
-      client = buildClientInfo(clientId = "moltbot-control-ui", clientMode = "ui"),
+      client = buildClientInfo(clientId = "clawdbot-control-ui", clientMode = "ui"),
       userAgent = buildUserAgent(),
     )
   }
