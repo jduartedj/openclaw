@@ -1,0 +1,172 @@
+name: Android Release Build
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/android/**'
+      - '.github/workflows/android-release.yml'
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: 'Build type'
+        required: true
+        default: 'debug'
+        type: choice
+        options:
+          - debug
+          - release
+      sideload:
+        description: 'Sideload to device via ADB'
+        required: false
+        default: true
+        type: boolean
+
+env:
+  APP_VERSION: '2026.1'
+
+jobs:
+  build-android:
+    runs-on: [self-hosted, Linux]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Checkout submodules (retry)
+        run: |
+          set -euo pipefail
+          git submodule sync --recursive
+          for attempt in 1 2 3 4 5; do
+            if git -c protocol.version=2 submodule update --init --force --depth=1 --recursive; then
+              exit 0
+            fi
+            echo "Submodule update failed (attempt $attempt/5). Retrying…"
+            sleep $((attempt * 10))
+          done
+          exit 1
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          accept-android-sdk-licenses: false
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.11.1
+
+      - name: Install Android SDK packages
+        run: |
+          yes | sdkmanager --licenses >/dev/null
+          sdkmanager --install \
+            "platform-tools" \
+            "platforms;android-36" \
+            "build-tools;36.0.0"
+
+      - name: Set version info
+        id: version
+        run: |
+          VERSION="${{ env.APP_VERSION }}.${{ github.run_number }}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Building version: $VERSION"
+
+      - name: Update version in build.gradle.kts
+        working-directory: apps/android
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          VERSION_CODE="${{ github.run_number }}"
+          
+          # Update versionName and versionCode
+          sed -i "s/versionName = \"[^\"]*\"/versionName = \"$VERSION\"/" app/build.gradle.kts
+          sed -i "s/versionCode = [0-9]*/versionCode = $VERSION_CODE/" app/build.gradle.kts
+          
+          echo "Updated build.gradle.kts:"
+          grep -E "versionName|versionCode" app/build.gradle.kts
+
+      - name: Build Debug APK
+        if: github.event.inputs.build_type != 'release'
+        working-directory: apps/android
+        run: ./gradlew --no-daemon :app:assembleDebug
+
+      - name: Build Release APK
+        if: github.event.inputs.build_type == 'release'
+        working-directory: apps/android
+        run: ./gradlew --no-daemon :app:assembleRelease
+
+      - name: Find and rename APK
+        id: apk
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          BUILD_TYPE="${{ github.event.inputs.build_type || 'debug' }}"
+          
+          # Find the APK (could be in debug or release folder)
+          APK_PATH=$(find apps/android/app/build/outputs/apk -name "*.apk" -type f | head -1)
+          
+          if [ -z "$APK_PATH" ]; then
+            echo "Error: No APK found!"
+            find apps/android/app/build/outputs -type f -name "*.apk" || true
+            exit 1
+          fi
+          
+          APK_DIR=$(dirname "$APK_PATH")
+          NEW_NAME="clawdbot-${VERSION}-${BUILD_TYPE}.apk"
+          mv "$APK_PATH" "${APK_DIR}/${NEW_NAME}"
+          
+          echo "apk_path=${APK_DIR}/${NEW_NAME}" >> $GITHUB_OUTPUT
+          echo "apk_name=${NEW_NAME}" >> $GITHUB_OUTPUT
+          echo "✓ APK ready: ${NEW_NAME}"
+          ls -lh "${APK_DIR}/${NEW_NAME}"
+
+      - name: Check for connected ADB devices
+        if: github.event.inputs.sideload == 'true'
+        id: adb_check
+        run: |
+          if command -v adb &> /dev/null; then
+            DEVICES=$(adb devices | grep -v "List" | grep -v "^$" | wc -l)
+            echo "devices=$DEVICES" >> $GITHUB_OUTPUT
+            echo "Found $DEVICES ADB device(s)"
+            adb devices -l
+          else
+            echo "devices=0" >> $GITHUB_OUTPUT
+            echo "ADB not found in PATH"
+          fi
+
+      - name: Sideload APK via ADB
+        if: github.event.inputs.sideload == 'true' && steps.adb_check.outputs.devices != '0'
+        run: |
+          echo "Installing APK on connected device(s)..."
+          adb install -r "${{ steps.apk.outputs.apk_path }}"
+          echo "✓ APK installed successfully!"
+          
+          # Optionally launch the app
+          echo "Launching app..."
+          adb shell am start -n bot.molt.android/.MainActivity || true
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: clawdbot-android-${{ steps.version.outputs.version }}
+          path: ${{ steps.apk.outputs.apk_path }}
+          retention-days: 30
+
+      - name: Build summary
+        run: |
+          echo "## Android Build Complete! 🤖" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Version:** ${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Build Type:** ${{ github.event.inputs.build_type || 'debug' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **APK:** ${{ steps.apk.outputs.apk_name }}" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ github.event.inputs.sideload }}" == "true" ] && [ "${{ steps.adb_check.outputs.devices }}" != "0" ]; then
+            echo "- **Sideloaded:** ✅ Yes" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- **Sideloaded:** ❌ No (no device connected or sideload disabled)" >> $GITHUB_STEP_SUMMARY
+          fi
