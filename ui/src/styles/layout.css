@@ -562,6 +562,167 @@
 }
 
 /* ===========================================
+   Sidebar Sessions Panel
+   =========================================== */
+
+.nav-group--sessions {
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.nav-sessions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.nav-sessions-empty {
+  padding: 8px 10px;
+  font-size: 12px;
+}
+
+/* Session group */
+.nav-session-group {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-bottom: 8px;
+}
+
+.nav-session-group:last-child {
+  margin-bottom: 0;
+}
+
+.nav-session-group-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 6px 10px 4px;
+  margin-top: 4px;
+}
+
+.nav-session-group:first-child .nav-session-group-label {
+  margin-top: 0;
+}
+
+/* Session item */
+.nav-session-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: var(--radius-md);
+  transition: background var(--duration-fast) ease;
+}
+
+.nav-session-item:hover {
+  background: var(--bg-hover);
+}
+
+.nav-session-item.active {
+  background: var(--bg-active);
+}
+
+.nav-session-item.pinned .nav-session-pin {
+  opacity: 1;
+  color: var(--primary);
+}
+
+/* Child session indentation */
+.nav-session-item.child {
+  margin-left: 12px;
+}
+
+.nav-session-item.child::before {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 50%;
+  width: 6px;
+  height: 1px;
+  background: var(--border);
+}
+
+.nav-session-link {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  padding: 5px 8px;
+  text-decoration: none;
+  color: var(--text);
+  min-width: 0;
+  overflow: hidden;
+}
+
+.nav-session-name {
+  font-size: 12px;
+  font-weight: 450;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nav-session-pin {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  margin-right: 4px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity var(--duration-fast) ease,
+    color var(--duration-fast) ease,
+    background var(--duration-fast) ease;
+}
+
+.nav-session-item:hover .nav-session-pin,
+.nav-session-pin.pinned {
+  opacity: 1;
+}
+
+.nav-session-pin:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.nav-session-pin svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* External link indicator in nav items */
+.nav-item__external-icon {
+  width: 12px;
+  height: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  opacity: 0.5;
+  margin-left: auto;
+}
+
+.nav-item__external-icon svg {
+  width: 100%;
+  height: 100%;
+  stroke: currentColor;
+  stroke-width: 2;
+  fill: none;
+}
+
+/* ===========================================
    Responsive - Tablet
    =========================================== */
 

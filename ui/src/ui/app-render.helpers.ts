@@ -3,7 +3,7 @@ import { repeat } from "lit/directives/repeat.js";
 import type { AppViewState } from "./app-view-state.ts";
 import type { ThemeTransitionContext } from "./theme-transition.ts";
 import type { ThemeMode } from "./theme.ts";
-import type { SessionsListResult } from "./types.ts";
+import type { GatewaySessionRow, SessionsListResult } from "./types.ts";
 import { refreshChat } from "./app-chat.ts";
 import { syncUrlWithSessionKey } from "./app-settings.ts";
 import { OpenClawApp } from "./app.ts";
@@ -341,5 +341,361 @@ function renderMonitorIcon() {
       <line x1="8" x2="16" y1="21" y2="21"></line>
       <line x1="12" x2="12" y1="17" y2="21"></line>
     </svg>
+  `;
+}
+
+export type SidebarSessionsProps = {
+  sessions: GatewaySessionRow[];
+  pinnedSessions: string[];
+  isCollapsed: boolean;
+  currentSessionKey: string;
+  basePath: string;
+  onToggleCollapse: () => void;
+  onTogglePin: (key: string) => void;
+  onSelectSession: (key: string) => void;
+};
+
+type SessionGroup = {
+  id: string;
+  label: string;
+  icon?: string;
+  sessions: Array<GatewaySessionRow & { friendlyName: string; isChild: boolean }>;
+};
+
+/**
+ * Parse session key and displayName to extract group and friendly name.
+ * Examples:
+ * - "agent:main:main" → { group: "main", name: "Main", isChild: false }
+ * - "agent:main:secondary" → { group: "main", name: "Secondary", isChild: true }
+ * - "agent:main:whatsapp:group:..." with displayName "whatsapp:g-manos" → { group: "whatsapp", name: "Manos (group)", isChild: false }
+ * - "agent:main:cron:..." → { group: "cron", name: "Cron Job", isChild: false }
+ * - "agent:main:subagent:..." with label → { group: "subagents", name: label, isChild: true }
+ */
+function parseSessionInfo(session: GatewaySessionRow): {
+  group: string;
+  name: string;
+  isChild: boolean;
+  sortKey: string;
+} {
+  const key = session.key;
+  const displayName = session.displayName || "";
+  const label = session.label || "";
+
+  // Parse the key structure: agent:agentId:type:...
+  const parts = key.split(":");
+
+  // Main session
+  if (key === "agent:main:main" || key === "main") {
+    return { group: "main", name: "Main", isChild: false, sortKey: "0" };
+  }
+
+  // Secondary agent
+  if (key === "agent:main:secondary" || key.endsWith(":secondary")) {
+    return { group: "main", name: "Secondary", isChild: true, sortKey: "1" };
+  }
+
+  // WhatsApp sessions
+  if (key.includes(":whatsapp:")) {
+    // Parse displayName like "whatsapp:g-manos" or "whatsapp:manos"
+    let name = displayName;
+    let isGroupChat = false;
+
+    if (displayName.startsWith("whatsapp:")) {
+      name = displayName.replace("whatsapp:", "");
+    }
+
+    // Handle group prefix "g-"
+    if (name.startsWith("g-")) {
+      name = name.slice(2);
+      isGroupChat = true;
+    }
+
+    // Capitalize and clean up the name (replace hyphens with spaces, title case)
+    name = name
+      .split("-")
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(" ");
+
+    if (isGroupChat) {
+      name = `${name} (group)`;
+    }
+
+    return { group: "whatsapp", name, isChild: false, sortKey: name.toLowerCase() };
+  }
+
+  // Telegram sessions
+  if (key.includes(":telegram:")) {
+    let name = displayName;
+    if (displayName.startsWith("telegram:")) {
+      name = displayName.replace("telegram:", "");
+    }
+    if (name.startsWith("g-")) {
+      name = name.slice(2) + " (group)";
+    }
+    name = name
+      .split("-")
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(" ");
+    return { group: "telegram", name, isChild: false, sortKey: name.toLowerCase() };
+  }
+
+  // Discord sessions
+  if (key.includes(":discord:")) {
+    let name = displayName;
+    if (displayName.startsWith("discord:")) {
+      name = displayName.replace("discord:", "");
+    }
+    name = name
+      .split("-")
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(" ");
+    return { group: "discord", name, isChild: false, sortKey: name.toLowerCase() };
+  }
+
+  // Cron sessions
+  if (key.includes(":cron:")) {
+    // Use label if available, otherwise show truncated ID
+    const cronId = parts[parts.length - 1];
+    const name = label || `Job ${cronId.slice(0, 8)}`;
+    return { group: "cron", name, isChild: false, sortKey: cronId };
+  }
+
+  // Subagent sessions
+  if (key.includes(":subagent:")) {
+    // Use label if available, otherwise show truncated ID
+    const subagentId = parts[parts.length - 1];
+    const name = label || `Task ${subagentId.slice(0, 8)}`;
+    return { group: "subagents", name, isChild: true, sortKey: subagentId };
+  }
+
+  // Webchat sessions
+  if (session.channel === "webchat" && !key.includes(":whatsapp:")) {
+    const name = displayName || label || key.split(":").pop() || "Webchat";
+    return { group: "webchat", name, isChild: false, sortKey: name.toLowerCase() };
+  }
+
+  // Fallback - unknown type
+  const name = displayName || label || key.split(":").pop() || key;
+  return { group: "other", name, isChild: false, sortKey: name.toLowerCase() };
+}
+
+const GROUP_ORDER: Record<string, number> = {
+  main: 0,
+  webchat: 1,
+  whatsapp: 2,
+  telegram: 3,
+  discord: 4,
+  subagents: 5,
+  cron: 6,
+  other: 7,
+};
+
+const GROUP_LABELS: Record<string, string> = {
+  main: "Main",
+  webchat: "Webchat",
+  whatsapp: "WhatsApp",
+  telegram: "Telegram",
+  discord: "Discord",
+  subagents: "Subagents",
+  cron: "Cron Jobs",
+  other: "Other",
+};
+
+export function renderSidebarSessions(props: SidebarSessionsProps) {
+  const {
+    sessions,
+    pinnedSessions,
+    isCollapsed,
+    currentSessionKey,
+    basePath,
+    onToggleCollapse,
+    onTogglePin,
+    onSelectSession,
+  } = props;
+
+  const pinnedSet = new Set(pinnedSessions);
+  const chatPath = pathForTab("chat", basePath);
+
+  // Sort all sessions by updatedAt descending
+  const sortedSessions = [...sessions].sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
+
+  // Take top 50 unpinned + all pinned
+  const pinned = sortedSessions.filter((s) => pinnedSet.has(s.key));
+  const unpinned = sortedSessions.filter((s) => !pinnedSet.has(s.key)).slice(0, 50);
+  const allSessions = [...pinned, ...unpinned];
+
+  // Group sessions
+  const groupsMap = new Map<string, SessionGroup>();
+
+  for (const session of allSessions) {
+    const info = parseSessionInfo(session);
+    const groupId = info.group;
+
+    if (!groupsMap.has(groupId)) {
+      groupsMap.set(groupId, {
+        id: groupId,
+        label: GROUP_LABELS[groupId] || groupId,
+        sessions: [],
+      });
+    }
+
+    groupsMap.get(groupId)!.sessions.push({
+      ...session,
+      friendlyName: info.name,
+      isChild: info.isChild,
+    });
+  }
+
+  // Sort groups by predefined order
+  const groups = Array.from(groupsMap.values()).sort(
+    (a, b) => (GROUP_ORDER[a.id] ?? 99) - (GROUP_ORDER[b.id] ?? 99),
+  );
+
+  // When collapsed, only show pinned sessions (flat, no grouping)
+  if (isCollapsed) {
+    const pinnedOnly = pinned.map((s) => ({
+      ...s,
+      friendlyName: parseSessionInfo(s).name,
+      isChild: parseSessionInfo(s).isChild,
+    }));
+
+    return html`
+      <div class="nav-group nav-group--sessions nav-group--collapsed">
+        <button
+          class="nav-label"
+          @click=${onToggleCollapse}
+          aria-expanded=${false}
+          title="Expand sessions"
+        >
+          <span class="nav-label__text">Sessions</span>
+          <span class="nav-label__chevron">+</span>
+        </button>
+        <div class="nav-group__items nav-sessions-list">
+          ${
+            pinnedOnly.length === 0
+              ? html`
+                  <div class="nav-sessions-empty muted">No pinned</div>
+                `
+              : pinnedOnly.map((session) =>
+                  renderSessionItem(
+                    session,
+                    pinnedSet,
+                    currentSessionKey,
+                    chatPath,
+                    onTogglePin,
+                    onSelectSession,
+                  ),
+                )
+          }
+        </div>
+      </div>
+    `;
+  }
+
+  return html`
+    <div class="nav-group nav-group--sessions">
+      <button
+        class="nav-label"
+        @click=${onToggleCollapse}
+        aria-expanded=${true}
+        title="Collapse sessions"
+      >
+        <span class="nav-label__text">Sessions</span>
+        <span class="nav-label__chevron">−</span>
+      </button>
+      <div class="nav-group__items nav-sessions-list">
+        ${
+          groups.length === 0
+            ? html`
+                <div class="nav-sessions-empty muted">No sessions</div>
+              `
+            : groups.map(
+                (group) => html`
+                <div class="nav-session-group">
+                  <div class="nav-session-group-label">${group.label}</div>
+                  ${group.sessions.map((session) =>
+                    renderSessionItem(
+                      session,
+                      pinnedSet,
+                      currentSessionKey,
+                      chatPath,
+                      onTogglePin,
+                      onSelectSession,
+                    ),
+                  )}
+                </div>
+              `,
+              )
+        }
+      </div>
+    </div>
+  `;
+}
+
+function renderSessionItem(
+  session: GatewaySessionRow & { friendlyName: string; isChild: boolean },
+  pinnedSet: Set<string>,
+  currentSessionKey: string,
+  chatPath: string,
+  onTogglePin: (key: string) => void,
+  onSelectSession: (key: string) => void,
+) {
+  const isPinned = pinnedSet.has(session.key);
+  const isActive = session.key === currentSessionKey;
+  const displayName = session.friendlyName;
+  const truncatedName = displayName.length > 22 ? displayName.slice(0, 20) + "…" : displayName;
+  const href = `${chatPath}?session=${encodeURIComponent(session.key)}`;
+
+  return html`
+    <div class="nav-session-item ${isActive ? "active" : ""} ${isPinned ? "pinned" : ""} ${session.isChild ? "child" : ""}">
+      <a
+        href=${href}
+        class="nav-session-link"
+        title="${session.key}"
+        @click=${(e: MouseEvent) => {
+          if (
+            e.defaultPrevented ||
+            e.button !== 0 ||
+            e.metaKey ||
+            e.ctrlKey ||
+            e.shiftKey ||
+            e.altKey
+          ) {
+            return;
+          }
+          e.preventDefault();
+          onSelectSession(session.key);
+        }}
+      >
+        <span class="nav-session-name">${truncatedName}</span>
+      </a>
+      <button
+        class="nav-session-pin ${isPinned ? "pinned" : ""}"
+        @click=${(e: MouseEvent) => {
+          e.stopPropagation();
+          onTogglePin(session.key);
+        }}
+        title="${isPinned ? "Unpin session" : "Pin session"}"
+        aria-label="${isPinned ? "Unpin session" : "Pin session"}"
+      >
+        ${isPinned ? icons.pin : icons.pinOff}
+      </button>
+    </div>
+  `;
+}
+
+export function renderDashboardLink(dashboardUrl: string) {
+  return html`
+    <a
+      class="nav-item nav-item--external"
+      href=${dashboardUrl}
+      target="_blank"
+      rel="noreferrer"
+      title="Work Dashboard (opens in new tab)"
+    >
+      <span class="nav-item__icon" aria-hidden="true">${icons.layoutDashboard}</span>
+      <span class="nav-item__text">Dashboard</span>
+      <span class="nav-item__external-icon" aria-hidden="true">${icons.externalLink}</span>
+    </a>
   `;
 }

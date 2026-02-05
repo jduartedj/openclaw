@@ -228,6 +228,37 @@ export const icons = {
       />
     </svg>
   `,
+  layoutDashboard: html`
+    <svg viewBox="0 0 24 24">
+      <rect width="7" height="9" x="3" y="3" rx="1" />
+      <rect width="7" height="5" x="14" y="3" rx="1" />
+      <rect width="7" height="9" x="14" y="12" rx="1" />
+      <rect width="7" height="5" x="3" y="16" rx="1" />
+    </svg>
+  `,
+  pin: html`
+    <svg viewBox="0 0 24 24">
+      <line x1="12" x2="12" y1="17" y2="22" />
+      <path
+        d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z"
+      />
+    </svg>
+  `,
+  pinOff: html`
+    <svg viewBox="0 0 24 24">
+      <line x1="2" x2="22" y1="2" y2="22" />
+      <line x1="12" x2="12" y1="17" y2="22" />
+      <path d="M9 9v1.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V17h12" />
+      <path d="M15 9.34V6h1a2 2 0 0 0 0-4H7.89" />
+    </svg>
+  `,
+  externalLink: html`
+    <svg viewBox="0 0 24 24">
+      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+      <polyline points="15 3 21 3 21 9" />
+      <line x1="10" x2="21" y1="14" y2="3" />
+    </svg>
+  `,
 } as const;
 
 export type IconName = keyof typeof icons;

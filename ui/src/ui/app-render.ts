@@ -2,7 +2,14 @@ import { html, nothing } from "lit";
 import type { AppViewState } from "./app-view-state.ts";
 import { parseAgentSessionKey } from "../../../src/routing/session-key.js";
 import { ChatHost, refreshChatAvatar } from "./app-chat.ts";
-import { renderChatControls, renderTab, renderThemeToggle } from "./app-render.helpers.ts";
+import {
+  renderChatControls,
+  renderTab,
+  renderThemeToggle,
+  renderSidebarSessions,
+  renderDashboardLink,
+} from "./app-render.helpers.ts";
+import { syncUrlWithSessionKey } from "./app-settings.ts";
 import { OpenClawApp } from "./app.ts";
 import { loadAgentFileContent, loadAgentFiles, saveAgentFile } from "./controllers/agent-files.ts";
 import { loadAgentIdentities, loadAgentIdentity } from "./controllers/agent-identity.ts";
@@ -186,10 +193,61 @@ export function renderApp(state: AppViewState) {
                 <span class="nav-label__chevron">${isGroupCollapsed ? "+" : "−"}</span>
               </button>
               <div class="nav-group__items">
-                ${group.tabs.map((tab) => renderTab(state, tab))}
+                ${group.tabs.map((tab) => {
+                  // Insert Dashboard link after Overview in Control group
+                  if (group.label === "Control" && tab === "overview") {
+                    return html`
+                      ${renderTab(state, tab)}
+                      ${renderDashboardLink("http://batcave:8765/")}
+                    `;
+                  }
+                  return renderTab(state, tab);
+                })}
               </div>
             </div>
           `;
+        })}
+        ${renderSidebarSessions({
+          sessions: state.sessionsResult?.sessions ?? [],
+          pinnedSessions: state.settings.pinnedSessions ?? [],
+          isCollapsed: state.settings.sidebarSessionsCollapsed ?? false,
+          currentSessionKey: state.sessionKey,
+          basePath: state.basePath,
+          onToggleCollapse: () => {
+            state.applySettings({
+              ...state.settings,
+              sidebarSessionsCollapsed: !state.settings.sidebarSessionsCollapsed,
+            });
+          },
+          onTogglePin: (key: string) => {
+            const currentPinned = state.settings.pinnedSessions ?? [];
+            const isPinned = currentPinned.includes(key);
+            const newPinned = isPinned
+              ? currentPinned.filter((k) => k !== key)
+              : [...currentPinned, key];
+            state.applySettings({
+              ...state.settings,
+              pinnedSessions: newPinned,
+            });
+          },
+          onSelectSession: (key: string) => {
+            state.sessionKey = key;
+            state.chatMessage = "";
+            state.chatStream = null;
+            (state as unknown as OpenClawApp).chatStreamStartedAt = null;
+            state.chatRunId = null;
+            (state as unknown as OpenClawApp).resetToolStream();
+            (state as unknown as OpenClawApp).resetChatScroll();
+            state.applySettings({
+              ...state.settings,
+              sessionKey: key,
+              lastActiveSessionKey: key,
+            });
+            void state.loadAssistantIdentity();
+            syncUrlWithSessionKey(key, true);
+            void loadChatHistory(state as unknown as ChatState);
+            state.setTab("chat");
+          },
         })}
         <div class="nav-group nav-group--links">
           <div class="nav-label nav-label--static">

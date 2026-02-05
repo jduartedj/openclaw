@@ -13,6 +13,8 @@ export type UiSettings = {
   splitRatio: number; // Sidebar split ratio (0.4 to 0.7, default 0.6)
   navCollapsed: boolean; // Collapsible sidebar state
   navGroupsCollapsed: Record<string, boolean>; // Which nav groups are collapsed
+  pinnedSessions: string[]; // Pinned session keys (shown even when collapsed)
+  sidebarSessionsCollapsed: boolean; // Sessions panel in sidebar collapsed state
 };
 
 export function loadSettings(): UiSettings {
@@ -32,6 +34,8 @@ export function loadSettings(): UiSettings {
     splitRatio: 0.6,
     navCollapsed: false,
     navGroupsCollapsed: {},
+    pinnedSessions: [],
+    sidebarSessionsCollapsed: false,
   };
 
   try {
@@ -77,6 +81,15 @@ export function loadSettings(): UiSettings {
         typeof parsed.navGroupsCollapsed === "object" && parsed.navGroupsCollapsed !== null
           ? parsed.navGroupsCollapsed
           : defaults.navGroupsCollapsed,
+      pinnedSessions:
+        Array.isArray(parsed.pinnedSessions) &&
+        parsed.pinnedSessions.every((s) => typeof s === "string")
+          ? parsed.pinnedSessions
+          : defaults.pinnedSessions,
+      sidebarSessionsCollapsed:
+        typeof parsed.sidebarSessionsCollapsed === "boolean"
+          ? parsed.sidebarSessionsCollapsed
+          : defaults.sidebarSessionsCollapsed,
     };
   } catch {
     return defaults;
