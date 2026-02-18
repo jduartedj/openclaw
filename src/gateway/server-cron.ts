@@ -3,6 +3,7 @@ import { resolveDefaultAgentId } from "../agents/agent-scope.js";
 import { loadConfig } from "../config/config.js";
 import { resolveAgentMainSessionKey } from "../config/sessions.js";
 import { resolveStorePath } from "../config/sessions/paths.js";
+import { loadSessionStore } from "../config/sessions/store.js";
 import { runCronIsolatedAgentTurn } from "../cron/isolated-agent.js";
 import { appendCronRunLog, resolveCronRunLogPath } from "../cron/run-log.js";
 import { CronService } from "../cron/service.js";
@@ -11,7 +12,6 @@ import { resolveDreamingConfig, shouldDream } from "../infra/dreaming.js";
 import { runHeartbeatOnce } from "../infra/heartbeat-runner.js";
 import { requestHeartbeatNow } from "../infra/heartbeat-wake.js";
 import { enqueueSystemEvent } from "../infra/system-events.js";
-import { getLastUserActivityMs } from "../infra/user-activity.js";
 import { getChildLogger } from "../logging.js";
 import { normalizeAgentId } from "../routing/session-key.js";
 import { defaultRuntime } from "../runtime.js";
@@ -84,7 +84,13 @@ export function buildGatewayCronService(params: {
       if (job.name?.includes("Dreaming")) {
         const runtimeConfig = loadConfig();
         const dreamingConfig = resolveDreamingConfig(runtimeConfig.dreaming);
-        if (!shouldDream(getLastUserActivityMs(), dreamingConfig.quietMinutes)) {
+        // Use max updatedAt across all sessions as last-activity timestamp
+        // (persisted on disk — survives gateway restarts).
+        const storePath = resolveStorePath(runtimeConfig.session?.store);
+        const store = loadSessionStore(storePath);
+        const lastActivityMs =
+          Math.max(0, ...Object.values(store).map((e) => e?.updatedAt ?? 0)) || undefined;
+        if (!shouldDream(lastActivityMs, dreamingConfig.quietMinutes)) {
           return { status: "skipped" as const, summary: "user recently active" };
         }
       }
