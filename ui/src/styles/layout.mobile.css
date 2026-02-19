@@ -300,6 +300,74 @@
     font-size: 11px;
   }
 
+  /* Sessions table → card layout */
+  .table-head {
+    display: none;
+  }
+
+  .table-row {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+
+  /* Key cell: show suffix via RTL truncation */
+  .session-key-cell,
+  .session-link {
+    direction: rtl;
+    text-overflow: ellipsis;
+    overflow: hidden;
+    white-space: nowrap;
+    max-width: 100%;
+    unicode-bidi: plaintext;
+  }
+
+  .session-key-display-name {
+    direction: ltr;
+    display: block;
+  }
+
+  /* Add field labels for card layout */
+  .table-row > div:nth-child(1) {
+    font-size: 13px;
+  }
+  .table-row > div:nth-child(2)::before {
+    content: "Label: ";
+    font-weight: 500;
+    color: var(--muted);
+    font-size: 11px;
+  }
+  .table-row > div:nth-child(3)::before {
+    content: "Kind: ";
+    font-weight: 500;
+    color: var(--muted);
+    font-size: 11px;
+  }
+  .table-row > div:nth-child(4)::before {
+    content: "Updated: ";
+    font-weight: 500;
+    color: var(--muted);
+    font-size: 11px;
+  }
+
+  /* Hide non-essential columns: Tokens(5), Thinking(6), Verbose(7), Reasoning(8) */
+  .table-row > div:nth-child(5),
+  .table-row > div:nth-child(6),
+  .table-row > div:nth-child(7),
+  .table-row > div:nth-child(8) {
+    display: none;
+  }
+
+  /* Actions column: inline */
+  .table-row > div:nth-child(9) {
+    margin-top: 4px;
+  }
+
+  /* Filters wrap */
+  .filters {
+    flex-direction: column;
+    gap: 8px;
+  }
+
   /* Code blocks */
   .code-block {
     padding: 8px;
