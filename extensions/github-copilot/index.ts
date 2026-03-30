@@ -5,11 +5,12 @@ import {
   listProfilesForProvider,
 } from "openclaw/plugin-sdk/provider-auth";
 import { githubCopilotLoginCommand } from "openclaw/plugin-sdk/provider-auth-login";
+import type { ModelDefinitionConfig } from "openclaw/plugin-sdk/provider-model-shared";
+import { discoverCopilotModels, COPILOT_IDE_HEADERS } from "./discovery.js";
+import { getDefaultCopilotModelIds } from "./models-defaults.js";
 import { PROVIDER_ID, resolveCopilotForwardCompatModel } from "./models.js";
 import { DEFAULT_COPILOT_API_BASE_URL, resolveCopilotApiToken } from "./token.js";
 import { fetchCopilotUsage } from "./usage.js";
-import { discoverCopilotModels, COPILOT_IDE_HEADERS } from "./discovery.js";
-import { getDefaultCopilotModelIds } from "./models-defaults.js";
 
 const COPILOT_ENV_VARS = ["COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"];
 const COPILOT_XHIGH_MODEL_IDS = ["gpt-5.2", "gpt-5.2-codex"] as const;
@@ -140,7 +141,7 @@ export default definePluginEntry({
             }
           }
 
-          let discoveredModels: Awaited<ReturnType<typeof discoverCopilotModels>> = [];
+          let discoveredModels: ModelDefinitionConfig[] = [];
           if (copilotToken) {
             try {
               const knownModelIds = new Set(getDefaultCopilotModelIds());
@@ -157,9 +158,8 @@ export default definePluginEntry({
           return {
             provider: {
               baseUrl,
-              ...(discoveredModels.length > 0
-                ? { headers: COPILOT_IDE_HEADERS, models: discoveredModels }
-                : { models: [] }),
+              headers: COPILOT_IDE_HEADERS,
+              models: discoveredModels,
             },
           };
         },

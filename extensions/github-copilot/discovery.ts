@@ -45,8 +45,9 @@ function inferApiType(model: CopilotApiModel): ModelDefinitionConfig["api"] {
   if (id.startsWith("claude")) {
     return "anthropic-messages";
   }
-  // Default to openai-responses which is what the copilot extension normally uses
-  return "openai-responses";
+  // Default to openai-completions (chat completions) which is broadly compatible.
+  // openai-responses requires explicit model support; safer to not assume it.
+  return "openai-completions";
 }
 
 function buildModelDefinition(model: CopilotApiModel): ModelDefinitionConfig {
@@ -93,6 +94,8 @@ export async function discoverCopilotModels(params: {
 
   return body.data
     .filter((m) => {
+      // Must have an id
+      if (!m.id) return false;
       // Only enabled models
       if (m.policy?.state && m.policy.state !== "enabled") return false;
       // Only chat-capable models (skip embeddings, etc.)
