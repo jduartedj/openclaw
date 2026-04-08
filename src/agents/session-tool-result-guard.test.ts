@@ -1,6 +1,6 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { installSessionToolResultGuard } from "./session-tool-result-guard.js";
 import { castAgentMessage } from "./test-helpers/agent-message-fixtures.js";
 import { redactTranscriptMessage } from "./transcript-redact.js";
@@ -518,6 +518,31 @@ describe("installSessionToolResultGuard", () => {
     expect(messages.map((m) => m.role)).toEqual(["assistant"]);
   });
 
+  it("does not branch when before_message_write blocks a synthetic tool result", () => {
+    const sm = SessionManager.inMemory();
+    const guard = installSessionToolResultGuard(sm, {
+      beforeMessageWriteHook: ({ message }) => {
+        if ((message as { role?: string }).role === "toolResult") {
+          return { block: true };
+        }
+        return undefined;
+      },
+    });
+
+    sm.appendMessage(toolCallMessage);
+
+    const assistantId = sm.getEntries().find((e) => e.type === "message")!.id;
+    const branchSpy = vi.spyOn(sm, "branch");
+
+    guard.flushPendingToolResults();
+
+    // branch should never have been called since the hook blocked the synthetic result
+    expect(branchSpy).not.toHaveBeenCalled();
+    // leaf should still point at the assistant entry, not rewound
+    expect(sm.getLeafId()).toBe(assistantId);
+    branchSpy.mockRestore();
+  });
+
   it("applies message persistence transform to user messages", () => {
     const sm = SessionManager.inMemory();
     installSessionToolResultGuard(sm, {
@@ -656,5 +681,200 @@ describe("installSessionToolResultGuard", () => {
       (m) => (m as { toolCallId?: string }).toolCallId === "call_error",
     );
     expect(syntheticForError).toHaveLength(0);
+  });
+
+  it("parallel tool results chain linearly — all visible on active branch", () => {
+    const sm = SessionManager.inMemory();
+    installSessionToolResultGuard(sm);
+
+    sm.appendMessage(
+      asAppendMessage({
+        role: "assistant",
+        content: [
+          { type: "toolCall", id: "call_a", name: "read", arguments: {} },
+          { type: "toolCall", id: "call_b", name: "exec", arguments: {} },
+          { type: "toolCall", id: "call_c", name: "write", arguments: {} },
+        ],
+      }),
+    );
+
+    const assistantEntry = sm.getEntries().find((e) => e.type === "message");
+    const assistantId = assistantEntry!.id;
+
+    sm.appendMessage(
+      asAppendMessage({
+        role: "toolResult",
+        toolCallId: "call_a",
+        content: [{ type: "text", text: "result a" }],
+        isError: false,
+      }),
+    );
+    sm.appendMessage(
+      asAppendMessage({
+        role: "toolResult",
+        toolCallId: "call_b",
+        content: [{ type: "text", text: "result b" }],
+        isError: false,
+      }),
+    );
+    sm.appendMessage(
+      asAppendMessage({
+        role: "toolResult",
+        toolCallId: "call_c",
+        content: [{ type: "text", text: "result c" }],
+        isError: false,
+      }),
+    );
+
+    const entries = sm.getEntries().filter((e) => e.type === "message");
+    const toolResults = entries.filter(
+      (e) => (e as { message: AgentMessage }).message.role === "toolResult",
+    );
+    expect(toolResults).toHaveLength(3);
+
+    // First tool result branches from assistant
+    expect(toolResults[0].parentId).toBe(assistantId);
+    // Second and third chain linearly from previous (not siblings of first)
+    expect(toolResults[1].parentId).toBe(toolResults[0].id);
+    expect(toolResults[2].parentId).toBe(toolResults[1].id);
+
+    // All three should be on the active branch (getBranch returns linear chain)
+    const branch = sm.getBranch();
+    const branchToolResults = branch.filter(
+      (e) => e.type === "message" && (e as { message: AgentMessage }).message.role === "toolResult",
+    );
+    expect(branchToolResults).toHaveLength(3);
+  });
+
+  it("flushed synthetic parallel tool results chain linearly from assistant", () => {
+    const sm = SessionManager.inMemory();
+    const guard = installSessionToolResultGuard(sm);
+
+    sm.appendMessage(
+      asAppendMessage({
+        role: "assistant",
+        content: [
+          { type: "toolCall", id: "call_x", name: "read", arguments: {} },
+          { type: "toolCall", id: "call_y", name: "exec", arguments: {} },
+        ],
+      }),
+    );
+
+    const assistantId = sm.getEntries().find((e) => e.type === "message")!.id;
+    guard.flushPendingToolResults();
+
+    const entries = sm.getEntries().filter((e) => e.type === "message");
+    const toolResults = entries.filter(
+      (e) => (e as { message: AgentMessage }).message.role === "toolResult",
+    );
+    expect(toolResults).toHaveLength(2);
+
+    // First branches from assistant, second chains from first
+    expect(toolResults[0].parentId).toBe(assistantId);
+    expect(toolResults[1].parentId).toBe(toolResults[0].id);
+
+    // Both should be on the active branch
+    const branch = sm.getBranch();
+    const branchToolResults = branch.filter(
+      (e) => e.type === "message" && (e as { message: AgentMessage }).message.role === "toolResult",
+    );
+    expect(branchToolResults).toHaveLength(2);
+  });
+
+  it("does not re-parent tool results with unknown/stale toolCallIds (P1)", () => {
+    const sm = SessionManager.inMemory();
+    installSessionToolResultGuard(sm);
+
+    sm.appendMessage(
+      asAppendMessage({
+        role: "assistant",
+        content: [{ type: "toolCall", id: "call_known", name: "read", arguments: {} }],
+      }),
+    );
+
+    // Append a tool result with an unknown id — should NOT be re-parented
+    sm.appendMessage(
+      asAppendMessage({
+        role: "toolResult",
+        toolCallId: "call_unknown",
+        content: [{ type: "text", text: "stale" }],
+        isError: false,
+      }),
+    );
+
+    const entries = sm.getEntries().filter((e) => e.type === "message");
+    const staleResult = entries.find(
+      (e) =>
+        ((e as { message: AgentMessage }).message as { toolCallId?: string }).toolCallId ===
+        "call_unknown",
+    );
+    expect(staleResult).toBeDefined();
+    // Since call_unknown is not pending, branch should NOT be called —
+    // it chains sequentially from the assistant entry.
+  });
+
+  it("clears assistantEntryId when blocked tool results exhaust pending set (P2)", () => {
+    let blockFirst = true;
+    const sm = SessionManager.inMemory();
+    installSessionToolResultGuard(sm, {
+      beforeMessageWriteHook: ({ message }) => {
+        if ((message as { role?: string }).role === "toolResult" && blockFirst) {
+          return { block: true };
+        }
+        return undefined;
+      },
+    });
+
+    // First assistant with tool calls
+    sm.appendMessage(
+      asAppendMessage({
+        role: "assistant",
+        content: [{ type: "toolCall", id: "call_blocked", name: "read", arguments: {} }],
+      }),
+    );
+
+    // Tool result gets blocked — pending exhausted, assistantEntryId should clear
+    sm.appendMessage(
+      asAppendMessage({
+        role: "toolResult",
+        toolCallId: "call_blocked",
+        content: [{ type: "text", text: "blocked" }],
+        isError: false,
+      }),
+    );
+
+    // Stop blocking
+    blockFirst = false;
+
+    // Second assistant with different tool calls
+    sm.appendMessage(
+      asAppendMessage({
+        role: "assistant",
+        content: [{ type: "toolCall", id: "call_new", name: "exec", arguments: {} }],
+      }),
+    );
+
+    sm.appendMessage(
+      asAppendMessage({
+        role: "toolResult",
+        toolCallId: "call_new",
+        content: [{ type: "text", text: "ok" }],
+        isError: false,
+      }),
+    );
+
+    // The second tool result should branch from the second assistant, not the first.
+    const entries = sm.getEntries().filter((e) => e.type === "message");
+    const assistants = entries.filter(
+      (e) => (e as { message: AgentMessage }).message.role === "assistant",
+    );
+    const secondAssistantId = assistants[1].id;
+    const newResult = entries.find(
+      (e) =>
+        ((e as { message: AgentMessage }).message as { toolCallId?: string }).toolCallId ===
+        "call_new",
+    );
+    expect(newResult).toBeDefined();
+    expect(newResult!.parentId).toBe(secondAssistantId);
   });
 });

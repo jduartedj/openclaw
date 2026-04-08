@@ -565,6 +565,11 @@ export function installSessionToolResultGuard(
   const originalAppend = getRawSessionAppendMessage(sessionManager);
   setRawSessionAppendMessage(sessionManager, originalAppend);
   const pendingState = createPendingToolCallState();
+  // Track the assistant entry ID that originated current tool calls.
+  // Branch to it only ONCE (for the first tool result) so all parallel
+  // results chain linearly on the active branch and remain visible in replay.
+  let assistantEntryId: string | undefined;
+  let hasBranchedForAssistant = false;
   const persistMessage = (message: AgentMessage) => {
     const transformer = opts?.transformMessageForPersistence;
     return transformer ? transformer(message) : message;
@@ -647,6 +652,12 @@ export function installSessionToolResultGuard(
           }),
         );
         if (flushed) {
+// Branch back to the assistant message only for the FIRST synthetic result.
+          // Subsequent results chain linearly so all remain on the active branch.
+          if (assistantEntryId && !hasBranchedForAssistant) {
+            sessionManager.branch(assistantEntryId);
+            hasBranchedForAssistant = true;
+          }
           appendMessageAndCacheTranscriptSeq(
             capToolResultForPersistence(flushed, maxToolResultChars, redactionConfig),
           );
@@ -654,10 +665,14 @@ export function installSessionToolResultGuard(
       }
     }
     pendingState.clear();
+    assistantEntryId = undefined;
+    hasBranchedForAssistant = false;
   };
 
   const clearPendingToolResults = () => {
     pendingState.clear();
+    assistantEntryId = undefined;
+    hasBranchedForAssistant = false;
   };
 
   const guardedAppend = (message: AgentMessage) => {
@@ -679,6 +694,7 @@ export function installSessionToolResultGuard(
 
     if (nextRole === "toolResult") {
       const id = extractToolResultId(nextMessage as Extract<AgentMessage, { role: "toolResult" }>);
+      const isPending = !!(id && pendingState.getToolName(id) !== undefined);
       const toolName = id ? pendingState.getToolName(id) : undefined;
       if (id) {
         pendingState.delete(id);
@@ -699,7 +715,20 @@ export function installSessionToolResultGuard(
         }),
       );
       if (!persisted) {
+        // P2: Clear assistantEntryId when tool result is blocked and no pending calls remain.
+        if (pendingState.size() === 0) {
+          assistantEntryId = undefined;
+          hasBranchedForAssistant = false;
+        }
         return undefined;
+      }
+// P1: Only re-parent tool results whose toolCallId is in the pending set,
+      // and only AFTER the write hook confirms the result will be persisted.
+      // Branch only ONCE (for the first result). Subsequent parallel results
+      // chain linearly so all remain on the active branch for replay.
+      if (isPending && assistantEntryId && !hasBranchedForAssistant) {
+        sessionManager.branch(assistantEntryId);
+        hasBranchedForAssistant = true;
       }
       return appendMessageAndCacheTranscriptSeq(
         capToolResultForPersistence(persisted, maxToolResultChars, redactionConfig),
@@ -772,6 +801,11 @@ export function installSessionToolResultGuard(
 
     if (toolCalls.length > 0) {
       pendingState.trackToolCalls(toolCalls);
+      // Remember the assistant entry so tool results can branch back to it.
+      if (typeof result === "string") {
+        assistantEntryId = result;
+        hasBranchedForAssistant = false;
+      }
     }
     if (isUserAgentMessage(finalMessage)) {
       void opts?.onUserMessagePersisted?.(finalMessage);
