@@ -82,6 +82,50 @@ export class UnsupportedAttachmentError extends Error {
   }
 }
 
+const MIME_TO_EXT: Record<string, string> = {
+  "image/jpeg": ".jpg",
+  "image/jpg": ".jpg",
+  "image/png": ".png",
+  "image/webp": ".webp",
+  "image/gif": ".gif",
+  "image/heic": ".heic",
+  "image/heif": ".heif",
+  // bmp/tiff excluded from SUPPORTED_OFFLOAD_MIMES to avoid extension-loss
+  // bug in store.ts; entries kept here for future extension support
+  "image/bmp": ".bmp",
+  "image/tiff": ".tiff",
+  // Audio formats
+  "audio/mpeg": ".mp3",
+  "audio/wav": ".wav",
+  "audio/ogg": ".ogg",
+  "audio/webm": ".webm",
+  "audio/mp4": ".m4a",
+  "audio/flac": ".flac",
+  "audio/aac": ".aac",
+};
+
+// Module-level Set for O(1) lookup — not rebuilt on every attachment iteration.
+//
+// heic/heif are included only if store.ts's extensionForMime maps them to an
+// extension. If it does not (same extension-loss risk as bmp/tiff), remove
+// them from this set.
+const SUPPORTED_OFFLOAD_MIMES = new Set([
+  "image/jpeg",
+  "image/jpg",
+  "image/png",
+  "image/webp",
+  "image/gif",
+  "image/heic",
+  "image/heif",
+  // Audio formats
+  "audio/mpeg",
+  "audio/wav",
+  "audio/ogg",
+  "audio/webm",
+  "audio/mp4",
+  "audio/flac",
+  "audio/aac",
+]);
 export class MediaOffloadError extends Error {
   override readonly cause: unknown;
   constructor(message: string, options?: ErrorOptions) {

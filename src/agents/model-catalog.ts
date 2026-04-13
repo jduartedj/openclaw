@@ -468,6 +468,10 @@ export async function loadModelCatalog(params?: {
       }
       logStage("configured-models-merged", `entries=${models.length}`);
 
+      // Patch models to add native audio input support
+      patchModelsWithAudioSupport(models);
+      logStage("audio-support-patched");
+
       if (models.length === 0) {
         // If we found nothing, don't cache this result so we can try again.
         if (!readOnly) {
@@ -514,4 +518,56 @@ export function modelSupportsVision(entry: ModelCatalogEntry | undefined): boole
  */
 export function modelSupportsDocument(entry: ModelCatalogEntry | undefined): boolean {
   return modelCatalogEntrySupportsInput(entry, "document");
+}
+
+/**
+ * Check if a model supports native audio input based on its catalog entry.
+ */
+export function modelSupportsAudio(entry: ModelCatalogEntry | undefined): boolean {
+  return modelCatalogEntrySupportsInput(entry, "audio");
+}
+
+/**
+ * Patch built-in models to add native audio input support where appropriate.
+ * This adds "audio" to the input array for models that support native audio input.
+ */
+function patchModelsWithAudioSupport(models: ModelCatalogEntry[]): void {
+  const audioCapableModels = new Set([
+    // OpenAI models with native audio support
+    "gpt-4o",
+    "gpt-4o-2024-05-13",
+    "gpt-4o-2024-08-06",
+    "gpt-4o-2024-11-20",
+    "gpt-4o-mini",
+    "gpt-4o-mini-2024-07-18",
+    "gpt-4o-audio-preview",
+
+    // Google models with native audio support
+    "gemini-2.0-flash",
+    "gemini-2.5-pro",
+    "gemini-2.5-flash",
+  ]);
+
+  for (const model of models) {
+    if (audioCapableModels.has(model.id) && model.input && !model.input.includes("audio")) {
+      model.input = [...model.input, "audio"];
+    }
+  }
+}
+
+/**
+ * Find a model in the catalog by provider and model ID.
+ */
+export function findModelInCatalog(
+  catalog: ModelCatalogEntry[],
+  provider: string,
+  modelId: string,
+): ModelCatalogEntry | undefined {
+  const normalizedProvider = normalizeProviderId(provider);
+  const normalizedModelId = normalizeLowercaseStringOrEmpty(modelId);
+  return catalog.find(
+    (entry) =>
+      normalizeProviderId(entry.provider) === normalizedProvider &&
+      normalizeLowercaseStringOrEmpty(entry.id) === normalizedModelId,
+  );
 }
