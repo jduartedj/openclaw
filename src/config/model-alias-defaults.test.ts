@@ -58,7 +58,7 @@ describe("applyModelDefaults", () => {
                 id: overrides?.modelId ?? "mistral-large-latest",
                 name: "Mistral",
                 reasoning: false,
-                input: ["text", "image"],
+                input: ["text", "image", "audio"],
                 cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
                 contextWindow: overrides?.contextWindow ?? 262_144,
                 maxTokens: overrides?.maxTokens ?? 262_144,

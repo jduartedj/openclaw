@@ -504,7 +504,7 @@ function installImageUnderstandingProviderStubs(...providers: MediaUnderstanding
   });
 }
 
-function makeModelDefinition(id: string, input: Array<"text" | "image">): ModelDefinitionConfig {
+function makeModelDefinition(id: string, input: Array<"text" | "image" | "audio">): ModelDefinitionConfig {
   return {
     id,
     name: id,
@@ -922,7 +922,7 @@ describe("image tool implicit imageModel config", () => {
               baseUrl: "https://example.com",
               models: [
                 makeModelDefinition("text-1", ["text"]),
-                makeModelDefinition("vision-1", ["text", "image"]),
+                makeModelDefinition("vision-1", ["text", "image", "audio"]),
               ],
             },
           },
@@ -984,7 +984,7 @@ describe("image tool implicit imageModel config", () => {
               baseUrl: "https://example.com",
               models: [
                 makeModelDefinition("text-1", ["text"]),
-                makeModelDefinition("vision-1", ["text", "image"]),
+                makeModelDefinition("vision-1", ["text", "image", "audio"]),
               ],
             },
           },
@@ -1146,7 +1146,7 @@ describe("image tool implicit imageModel config", () => {
           providers: {
             acme: {
               baseUrl: "https://example.com",
-              models: [makeModelDefinition("vision-1", ["text", "image"])],
+              models: [makeModelDefinition("vision-1", ["text", "image", "audio"])],
             },
           },
         },
@@ -1179,7 +1179,7 @@ describe("image tool implicit imageModel config", () => {
             moonshot: {
               api: "openai-completions",
               baseUrl: "https://api.moonshot.ai/v1",
-              models: [makeModelDefinition("kimi-k2.5", ["text", "image"])],
+              models: [makeModelDefinition("kimi-k2.5", ["text", "image", "audio"])],
             },
           },
         },
@@ -1239,7 +1239,7 @@ describe("image tool implicit imageModel config", () => {
               api: "openai-completions",
               baseUrl: "https://openrouter.ai/api/v1",
               apiKey: "openrouter-test",
-              models: [makeModelDefinition("google/gemini-2.5-flash-lite", ["text", "image"])],
+              models: [makeModelDefinition("google/gemini-2.5-flash-lite", ["text", "image", "audio"])],
             },
           },
         },
@@ -1272,7 +1272,7 @@ describe("image tool implicit imageModel config", () => {
               api: "openai-completions",
               baseUrl: "https://openrouter.ai/api/v1",
               apiKey: "openrouter-test",
-              models: [makeModelDefinition("google/gemini-2.5-flash-lite", ["text", "image"])],
+              models: [makeModelDefinition("google/gemini-2.5-flash-lite", ["text", "image", "audio"])],
             },
           },
         },

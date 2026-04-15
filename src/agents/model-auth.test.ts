@@ -1254,7 +1254,7 @@ describe("applyAuthHeaderOverride", () => {
     provider: "google",
     baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
     reasoning: false,
-    input: ["text"] as ("text" | "image")[],
+    input: ["text"] as ("text" | "image" | "audio")[],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: 131072,
     maxTokens: 8192,

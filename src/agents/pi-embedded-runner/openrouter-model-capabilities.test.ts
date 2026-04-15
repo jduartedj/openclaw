@@ -77,18 +77,22 @@ describe("openrouter-model-capabilities", () => {
       await module.loadOpenRouterModelCapabilities("acme/top-level-max-completion");
 
       const maxCompletion = module.getOpenRouterModelCapabilities("acme/top-level-max-completion");
-      expect(maxCompletion?.input).toEqual(["text", "image"]);
-      expect(maxCompletion?.reasoning).toBe(true);
-      expect(maxCompletion?.supportsTools).toBe(true);
-      expect(maxCompletion?.contextWindow).toBe(65432);
-      expect(maxCompletion?.maxTokens).toBe(12345);
+      expect(maxCompletion).toMatchObject({
+        input: ["text", "image", "audio"],
+        reasoning: true,
+        supportsTools: true,
+        contextWindow: 65432,
+        maxTokens: 12345,
+      });
 
       const maxOutput = module.getOpenRouterModelCapabilities("acme/top-level-max-output");
-      expect(maxOutput?.input).toEqual(["text", "image"]);
-      expect(maxOutput?.reasoning).toBe(false);
+      expect(maxOutput).toMatchObject({
+        input: ["text", "image", "audio"],
+        reasoning: false,
+        contextWindow: 54321,
+        maxTokens: 23456,
+      });
       expect(maxOutput?.supportsTools).toBeUndefined();
-      expect(maxOutput?.contextWindow).toBe(54321);
-      expect(maxOutput?.maxTokens).toBe(23456);
     });
   });
 

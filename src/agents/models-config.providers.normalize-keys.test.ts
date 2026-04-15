@@ -35,7 +35,7 @@ describe("normalizeProviders", () => {
   ) => ({
     id: "config-model",
     name: "Config model",
-    input: ["text"] as Array<"text" | "image">,
+    input: ["text"] as Array<"text" | "image" | "audio">,
     reasoning: false,
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: 8192,
