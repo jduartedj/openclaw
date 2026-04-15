@@ -398,6 +398,13 @@ export function resolveAzureOpenAIApiVersion(env = process.env): string {
   return env.AZURE_OPENAI_API_VERSION?.trim() || DEFAULT_AZURE_OPENAI_API_VERSION;
 }
 
+function mapAudioFormat(mimeType: string): "wav" | "mp3" | "flac" | "opus" {
+  if (mimeType === "audio/wav" || mimeType === "audio/x-wav") return "wav";
+  if (mimeType === "audio/flac" || mimeType === "audio/x-flac") return "flac";
+  if (mimeType === "audio/opus" || mimeType === "audio/ogg") return "opus";
+  return "mp3";
+}
+
 function shortHash(value: string): string {
   let hash = 0;
   for (let i = 0; i < value.length; i += 1) {
@@ -497,17 +504,32 @@ function convertResponsesMessages(
           content: [{ type: "input_text", text: sanitizeTransportPayloadText(msg.content) }],
         });
       } else {
-        const content = (
-          msg.content.map((item) =>
-            item.type === "text"
-              ? { type: "input_text", text: sanitizeTransportPayloadText(item.text) }
-              : {
-                  type: "input_image",
-                  detail: "auto",
-                  image_url: `data:${item.mimeType};base64,${item.data}`,
-                },
-          ) as ResponseInputMessageContentList
-        ).filter((item) => model.input.includes("image") || item.type !== "input_image");
+        const mi = model.input as Array<"text" | "image" | "audio">;
+        const rawContent = msg.content.map((item) => {
+          if (item.type === "text") {
+            return { type: "input_text", text: sanitizeTransportPayloadText(item.text) };
+          }
+          // Audio-as-ImageContent: discriminate by MIME
+          if (item.mimeType?.startsWith("audio/")) {
+            return {
+              type: "input_audio",
+              input_audio: {
+                data: item.data,
+                format: mapAudioFormat(item.mimeType),
+              },
+            };
+          }
+          return {
+            type: "input_image",
+            detail: "auto",
+            image_url: `data:${item.mimeType};base64,${item.data}`,
+          };
+        });
+        const content = rawContent.filter((item) => {
+          if (item.type === "input_image") return mi.includes("image");
+          if (item.type === "input_audio") return mi.includes("audio");
+          return true;
+        }) as ResponseInputMessageContentList;
         if (content.length > 0) {
           messages.push({ role: "user", content });
         }
@@ -576,23 +598,48 @@ function convertResponsesMessages(
         .filter((item) => item.type === "text")
         .map((item) => item.text)
         .join("\n");
-      const hasImages = msg.content.some((item) => item.type === "image");
+      const modelInput = model.input as Array<"text" | "image" | "audio">;
+      const hasImages = msg.content.some(
+        (item) => item.type === "image" && !item.mimeType?.startsWith("audio/"),
+      );
+      const hasAudio = msg.content.some(
+        (item) => item.type === "image" && item.mimeType?.startsWith("audio/"),
+      );
       const [callId] = msg.toolCallId.split("|");
       messages.push({
         type: "function_call_output",
         call_id: callId,
         output:
-          hasImages && model.input.includes("image")
+          (hasImages && modelInput.includes("image")) || (hasAudio && modelInput.includes("audio"))
             ? ([
                 ...(textResult
                   ? [{ type: "input_text", text: sanitizeTransportPayloadText(textResult) }]
                   : []),
                 ...msg.content
-                  .filter((item) => item.type === "image")
+                  .filter(
+                    (item): item is typeof item & { type: "image" } =>
+                      item.type === "image" &&
+                      !item.mimeType?.startsWith("audio/") &&
+                      modelInput.includes("image"),
+                  )
                   .map((item) => ({
                     type: "input_image",
                     detail: "auto",
                     image_url: `data:${item.mimeType};base64,${item.data}`,
+                  })),
+                ...msg.content
+                  .filter(
+                    (item): item is typeof item & { type: "image" } =>
+                      item.type === "image" &&
+                      (item.mimeType?.startsWith("audio/") ?? false) &&
+                      modelInput.includes("audio"),
+                  )
+                  .map((item) => ({
+                    type: "input_audio",
+                    input_audio: {
+                      data: item.data,
+                      format: mapAudioFormat(item.mimeType ?? "audio/mp3"),
+                    },
                   })),
               ] as ResponseFunctionCallOutputItemList)
             : sanitizeTransportPayloadText(textResult || "(see attached image)"),
