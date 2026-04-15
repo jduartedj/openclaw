@@ -104,14 +104,22 @@ function normalizeCreatedAtMs(value: unknown): number | null {
   return Math.round(value * 1000);
 }
 
-function parseModality(modality: string | null): Array<"text" | "image"> {
+function parseModality(modality: string | null): Array<"text" | "image" | "audio"> {
   if (!modality) {
     return ["text"];
   }
   const normalized = normalizeLowercaseStringOrEmpty(modality);
-  const parts = normalized.split(/[^a-z]+/).filter(Boolean);
-  const hasImage = parts.includes("image");
-  return hasImage ? ["text", "image"] : ["text"];
+  const parts = new Set(normalized.split(/[^a-z]+/).filter(Boolean));
+  const hasImage = parts.has("image");
+  const hasAudio = parts.has("audio");
+  const result: Array<"text" | "image" | "audio"> = ["text"];
+  if (hasImage) {
+    result.push("image");
+  }
+  if (hasAudio) {
+    result.push("audio");
+  }
+  return result;
 }
 
 function parseNumberString(value: unknown): number | null {
@@ -481,7 +489,7 @@ export async function scanOpenRouterModels(
         name: entry.name || entry.id,
         contextWindow: entry.contextLength ?? baseModel.contextWindow,
         maxTokens: entry.maxCompletionTokens ?? baseModel.maxTokens,
-        input: parseModality(entry.modality),
+        input: parseModality(entry.modality) as Array<"text" | "image">,
         reasoning: baseModel.reasoning,
       };
 

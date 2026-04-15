@@ -99,10 +99,13 @@ export function resolveProviderModelInput(params: {
   modelName?: string;
   input?: unknown;
   fallbackInput?: unknown;
-}): Array<"text" | "image"> {
+}): Array<"text" | "image" | "audio"> {
   const resolvedInput = Array.isArray(params.input) ? params.input : params.fallbackInput;
   const normalizedInput = Array.isArray(resolvedInput)
-    ? resolvedInput.filter((item): item is "text" | "image" => item === "text" || item === "image")
+    ? resolvedInput.filter(
+        (item): item is "text" | "image" | "audio" =>
+          item === "text" || item === "image" || item === "audio",
+      )
     : [];
   if (
     normalizedInput.length > 0 &&
