@@ -398,11 +398,11 @@ export function resolveAzureOpenAIApiVersion(env = process.env): string {
   return env.AZURE_OPENAI_API_VERSION?.trim() || DEFAULT_AZURE_OPENAI_API_VERSION;
 }
 
-function mapAudioFormat(mimeType: string): "wav" | "mp3" | "flac" | "opus" {
-  if (mimeType === "audio/wav" || mimeType === "audio/x-wav") return "wav";
-  if (mimeType === "audio/flac" || mimeType === "audio/x-flac") return "flac";
-  if (mimeType === "audio/opus" || mimeType === "audio/ogg") return "opus";
-  return "mp3";
+function mapAudioFormat(mimeType: string): "wav" | "mp3" {
+  if (mimeType === "audio/wav" || mimeType === "audio/x-wav") {
+    return "wav";
+  }
+  return "mp3"; // safest universal default
 }
 
 function shortHash(value: string): string {
