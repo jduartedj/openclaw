@@ -37,6 +37,7 @@ import {
   resolveModelSseDebugMode,
 } from "./model-transport-debug.js";
 import { formatModelTransportDebugBaseUrl } from "./model-transport-url.js";
+import { isAudioOutputModelId } from "./model-catalog.js";
 import { detectOpenAICompletionsCompat } from "./openai-completions-compat.js";
 import {
   flattenCompletionMessagesToStringContent,
@@ -113,7 +114,21 @@ type OpenAICompletionsOptions = BaseStreamOptions & {
       };
   reasoning?: OpenAIReasoningEffort;
   reasoningEffort?: OpenAIReasoningEffort;
+  /**
+   * Audio output configuration. Only applied when the model supports audio output
+   * (see `isAudioOutputModelId`). Pass `false` to suppress audio output even on
+   * an audio-capable model.
+   */
+  audioOutput?:
+    | false
+    | {
+        voice?: string;
+        format?: "wav" | "mp3" | "flac" | "opus" | "pcm16";
+      };
 };
+
+const DEFAULT_AUDIO_OUTPUT_VOICE = "alloy";
+const DEFAULT_AUDIO_OUTPUT_FORMAT = "mp3";
 
 type OpenAIModeCompatInput = Omit<ModelCompatConfig, "thinkingFormat"> & {
   thinkingFormat?: string;
@@ -403,6 +418,27 @@ function mapAudioFormat(mimeType: string): "wav" | "mp3" {
     return "wav";
   }
   return "mp3"; // safest universal default
+}
+
+/**
+ * Inverse of `mapAudioFormat`: given an OpenAI audio output `format` (the one we
+ * sent in the request), return the corresponding MIME type for storage/playback.
+ */
+function audioMimeForFormat(format: string): string {
+  switch (format) {
+    case "wav":
+      return "audio/wav";
+    case "mp3":
+      return "audio/mpeg";
+    case "flac":
+      return "audio/flac";
+    case "opus":
+      return "audio/opus";
+    case "pcm16":
+      return "audio/pcm";
+    default:
+      return "audio/mpeg";
+  }
 }
 
 function shortHash(value: string): string {
@@ -1780,6 +1816,12 @@ export function createOpenAICompletionsTransportStreamFn(): StreamFn {
           enforceCodeModeResponsesToolSurface(params);
           assertCodeModeResponsesToolSurface(params);
         }
+        // Stash the requested audio output format so the stream consumer can tag
+        // captured audio blocks with the correct MIME type.
+        const audioParam = params.audio as { format?: string } | undefined;
+        if (audioParam && typeof audioParam.format === "string") {
+          (output as unknown as { audioFormat?: string }).audioFormat = audioParam.format;
+        }
         const responseStream = (await client.chat.completions.create(
           params as never,
           buildOpenAISdkRequestOptions(model, options?.signal),
@@ -1824,6 +1866,14 @@ async function processOpenAICompletionsStream(
         arguments: Record<string, unknown>;
         partialArgs: string;
         thoughtSignature?: string;
+      }
+    | {
+        type: "audio";
+        id?: string;
+        data: string;
+        transcript: string;
+        mimeType: string;
+        expiresAt?: number;
       }
     | null = null;
   let pendingPostToolCallDeltas: CompletionsReasoningDelta[] = [];
@@ -2012,6 +2062,55 @@ async function processOpenAICompletionsStream(
       } else {
         appendThinkingDelta(reasoningDelta);
       }
+    }
+
+    // Audio output (gpt-4o-audio-preview / realtime). Not in OpenAI SDK typings;
+    // delta.audio = { id?, data?, transcript?, expires_at? } where data is base64
+    // chunks of the chosen format and transcript is the spoken text.
+    const audioDelta = (choiceDelta as Record<string, unknown>).audio as
+      | { id?: string; data?: string; transcript?: string; expires_at?: number }
+      | undefined;
+    if (audioDelta && (audioDelta.data || audioDelta.transcript || audioDelta.id)) {
+      if (!currentBlock || currentBlock.type !== "audio") {
+        finishCurrentBlock();
+        const requestedFormat =
+          (output as unknown as { audioFormat?: string }).audioFormat ?? "mp3";
+        currentBlock = {
+          type: "audio",
+          id: audioDelta.id,
+          data: "",
+          transcript: "",
+          mimeType: audioMimeForFormat(requestedFormat),
+          expiresAt: audioDelta.expires_at,
+        };
+        output.content.push(currentBlock as unknown as Record<string, unknown>);
+        stream.push({ type: "audio_start", contentIndex: blockIndex(), partial: output });
+      }
+      if (audioDelta.id && !currentBlock.id) {
+        currentBlock.id = audioDelta.id;
+      }
+      if (typeof audioDelta.expires_at === "number") {
+        currentBlock.expiresAt = audioDelta.expires_at;
+      }
+      if (typeof audioDelta.data === "string" && audioDelta.data.length > 0) {
+        currentBlock.data += audioDelta.data;
+        stream.push({
+          type: "audio_delta",
+          contentIndex: blockIndex(),
+          delta: audioDelta.data,
+          partial: output,
+        });
+      }
+      if (typeof audioDelta.transcript === "string" && audioDelta.transcript.length > 0) {
+        currentBlock.transcript += audioDelta.transcript;
+        stream.push({
+          type: "audio_transcript_delta",
+          contentIndex: blockIndex(),
+          delta: audioDelta.transcript,
+          partial: output,
+        });
+      }
+      continue;
     }
     if (choiceDelta.tool_calls && choiceDelta.tool_calls.length > 0) {
       for (const toolCall of choiceDelta.tool_calls) {
@@ -2719,6 +2818,18 @@ export function buildOpenAICompletionsParams(
     !omitGpt54MiniToolReasoningEffort
   ) {
     params.reasoning_effort = resolvedCompletionsReasoningEffort;
+  }
+
+  // Audio output: when the model supports `modalities: ["audio"]` and the caller
+  // hasn't explicitly disabled it, request both text and audio modalities so we
+  // capture the spoken response (transcript still arrives as text content).
+  if (options?.audioOutput !== false && isAudioOutputModelId(model.id)) {
+    const audioCfg = typeof options?.audioOutput === "object" ? options.audioOutput : undefined;
+    params.modalities = ["text", "audio"];
+    params.audio = {
+      voice: audioCfg?.voice ?? DEFAULT_AUDIO_OUTPUT_VOICE,
+      format: audioCfg?.format ?? DEFAULT_AUDIO_OUTPUT_FORMAT,
+    };
   }
   return params;
 }
