@@ -5,7 +5,11 @@ import {
   modelOutputsAudio,
   type ModelCatalogEntry,
 } from "./model-catalog.js";
-import { buildOpenAICompletionsParams } from "./openai-transport-stream.js";
+import {
+  buildOpenAICompletionsParams,
+  processOpenAICompletionsStream,
+  type MutableAssistantOutput,
+} from "./openai-transport-stream.js";
 
 describe("audio output modality — capability helpers", () => {
   it("modelOutputsAudio reports true when entry.output includes 'audio'", () => {
@@ -123,5 +127,155 @@ describe("audio output modality — request params", () => {
 
     expect(params.modalities).toBeUndefined();
     expect(params.audio).toBeUndefined();
+  });
+});
+
+describe("audio output modality — stream consumer", () => {
+  function makeOutput(audioFormat?: string): MutableAssistantOutput {
+    const output: MutableAssistantOutput = {
+      content: [],
+      usage: {
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+      },
+      stopReason: "stop",
+      timestamp: Date.now(),
+    };
+    if (audioFormat) {
+      (output as unknown as { audioFormat?: string }).audioFormat = audioFormat;
+    }
+    return output;
+  }
+
+  function makeModel(): Model<"openai-completions"> {
+    return {
+      id: "gpt-4o-audio-preview",
+      name: "GPT-4o Audio Preview",
+      api: "openai-completions",
+      provider: "openai",
+      baseUrl: "https://api.openai.com/v1",
+      reasoning: false,
+      input: ["text"],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 128000,
+      maxTokens: 4096,
+    } as unknown as Model<"openai-completions">;
+  }
+
+  async function* streamOf(chunks: Array<Record<string, unknown>>) {
+    for (const chunk of chunks) {
+      yield chunk as never;
+    }
+  }
+
+  it("captures delta.audio chunks into a single audio block with concatenated data + transcript", async () => {
+    const events: Array<Record<string, unknown>> = [];
+    const stream = { push: (event: unknown) => events.push(event as Record<string, unknown>) };
+    const output = makeOutput("mp3");
+    const chunks = [
+      { id: "r1", choices: [{ delta: { audio: { id: "a_1", data: "AAAA" } } }] },
+      { id: "r1", choices: [{ delta: { audio: { data: "BBBB", transcript: "Hello" } } }] },
+      {
+        id: "r1",
+        choices: [
+          { delta: { audio: { data: "CCCC", transcript: " world", expires_at: 1234567890 } } },
+        ],
+      },
+      { id: "r1", choices: [{ delta: {}, finish_reason: "stop" }] },
+    ];
+
+    await processOpenAICompletionsStream(streamOf(chunks), output, makeModel(), stream);
+
+    expect(output.content).toHaveLength(1);
+    const block = output.content[0] as unknown as {
+      type: string;
+      id?: string;
+      data: string;
+      transcript: string;
+      mimeType: string;
+      expiresAt?: number;
+    };
+    expect(block.type).toBe("audio");
+    expect(block.id).toBe("a_1");
+    expect(block.data).toBe("AAAABBBBCCCC");
+    expect(block.transcript).toBe("Hello world");
+    expect(block.mimeType).toBe("audio/mpeg");
+    expect(block.expiresAt).toBe(1234567890);
+  });
+
+  it("emits audio_start, audio_delta and audio_transcript_delta events in order", async () => {
+    const events: Array<Record<string, unknown>> = [];
+    const stream = { push: (event: unknown) => events.push(event as Record<string, unknown>) };
+    const output = makeOutput("wav");
+    const chunks = [
+      { id: "r2", choices: [{ delta: { audio: { id: "a_2", data: "D" } } }] },
+      { id: "r2", choices: [{ delta: { audio: { transcript: "Hi" } } }] },
+      { id: "r2", choices: [{ delta: { audio: { data: "E" } } }] },
+      { id: "r2", choices: [{ delta: {}, finish_reason: "stop" }] },
+    ];
+
+    await processOpenAICompletionsStream(streamOf(chunks), output, makeModel(), stream);
+
+    const types = events.map((e) => e.type);
+    expect(types[0]).toBe("audio_start");
+    expect(types).toContain("audio_delta");
+    expect(types).toContain("audio_transcript_delta");
+    // First delta event after start must be audio_delta (data came first).
+    const firstNonStart = events.find(
+      (e) => e.type === "audio_delta" || e.type === "audio_transcript_delta",
+    );
+    expect(firstNonStart?.type).toBe("audio_delta");
+  });
+
+  it("uses the requested audioFormat hint when resolving mimeType (wav → audio/wav)", async () => {
+    const stream = { push: () => {} };
+    const output = makeOutput("wav");
+    const chunks = [
+      { id: "r3", choices: [{ delta: { audio: { data: "X" } } }] },
+      { id: "r3", choices: [{ delta: {}, finish_reason: "stop" }] },
+    ];
+
+    await processOpenAICompletionsStream(streamOf(chunks), output, makeModel(), stream);
+
+    const block = output.content[0] as unknown as { mimeType: string };
+    expect(block.mimeType).toBe("audio/wav");
+  });
+
+  it("defaults mimeType to audio/mpeg when no audioFormat hint is set", async () => {
+    const stream = { push: () => {} };
+    const output = makeOutput(); // no hint
+    const chunks = [
+      { id: "r4", choices: [{ delta: { audio: { data: "Y" } } }] },
+      { id: "r4", choices: [{ delta: {}, finish_reason: "stop" }] },
+    ];
+
+    await processOpenAICompletionsStream(streamOf(chunks), output, makeModel(), stream);
+
+    const block = output.content[0] as unknown as { mimeType: string };
+    expect(block.mimeType).toBe("audio/mpeg");
+  });
+
+  it("interleaves text and audio blocks correctly when both modalities stream in", async () => {
+    const stream = { push: () => {} };
+    const output = makeOutput("mp3");
+    const chunks = [
+      { id: "r5", choices: [{ delta: { content: "Pre-text " } }] },
+      {
+        id: "r5",
+        choices: [{ delta: { audio: { id: "a_5", data: "AUDIO", transcript: "speak" } } }],
+      },
+      { id: "r5", choices: [{ delta: { content: "Post-text" } }] },
+      { id: "r5", choices: [{ delta: {}, finish_reason: "stop" }] },
+    ];
+
+    await processOpenAICompletionsStream(streamOf(chunks), output, makeModel(), stream);
+
+    expect(output.content).toHaveLength(3);
+    expect((output.content[0] as { type: string }).type).toBe("text");
+    expect((output.content[1] as unknown as { type: string }).type).toBe("audio");
+    expect((output.content[2] as { type: string }).type).toBe("text");
   });
 });

@@ -138,7 +138,7 @@ type OpenAIModeModel = Omit<Model<Api>, "compat"> & {
   compat?: OpenAIModeCompatInput | null;
 };
 
-type MutableAssistantOutput = {
+export type MutableAssistantOutput = {
   role: "assistant";
   content: Array<Record<string, unknown>>;
   api: Api;
@@ -1844,7 +1844,7 @@ export function createOpenAICompletionsTransportStreamFn(): StreamFn {
   };
 }
 
-async function processOpenAICompletionsStream(
+export async function processOpenAICompletionsStream(
   responseStream: AsyncIterable<ChatCompletionChunk>,
   output: MutableAssistantOutput,
   model: Model<Api>,
