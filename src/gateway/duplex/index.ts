@@ -5,3 +5,6 @@ export * from "./session.js";
 export * from "./backpressure.js";
 export * from "./openai-realtime-types.js";
 export * from "./openai-realtime-adapter.js";
+export * from "./mixed-modality-types.js";
+export * from "./mixed-modality-handler.js";
+export * from "./session-recovery.js";
