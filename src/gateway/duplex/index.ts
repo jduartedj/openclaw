@@ -8,3 +8,7 @@ export * from "./openai-realtime-adapter.js";
 export * from "./mixed-modality-types.js";
 export * from "./mixed-modality-handler.js";
 export * from "./session-recovery.js";
+export * from "./webrtc-types.js";
+export * from "./webrtc-signaling.js";
+export * from "./webrtc-transport.js";
+export * from "./transport-negotiator.js";
