@@ -44,6 +44,7 @@ describe("discoverCopilotModels", () => {
         copilotToken: "copilot-token",
         knownModelIds: new Set(["known-model"]),
         extraHeaders: { "X-Proxy-Auth": "proxy-token" },
+        lookupFn: vi.fn(async () => ({ address: "93.184.216.34", family: 4 })),
       }),
     ).resolves.toEqual([
       expect.objectContaining({ id: "alpha-model" }),

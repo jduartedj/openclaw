@@ -1,4 +1,9 @@
 import type { ModelDefinitionConfig } from "openclaw/plugin-sdk/provider-model-shared";
+import {
+  fetchWithSsrFGuard,
+  type LookupFn,
+  type SsrFPolicy,
+} from "openclaw/plugin-sdk/ssrf-runtime";
 import { resolveCopilotTransportApi } from "./models.js";
 
 export const COPILOT_IDE_HEADERS: Record<string, string> = {
@@ -66,53 +71,84 @@ function buildModelDefinition(model: CopilotApiModel): ModelDefinitionConfig {
   };
 }
 
+function ssrfPolicyFromCopilotBaseUrl(
+  baseUrl: string,
+  allowPrivateNetwork?: boolean,
+): SsrFPolicy | undefined {
+  try {
+    const parsed = new URL(baseUrl);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return undefined;
+    }
+    return {
+      hostnameAllowlist: [parsed.hostname],
+      ...(allowPrivateNetwork ? { allowPrivateNetwork: true } : {}),
+    };
+  } catch {
+    return undefined;
+  }
+}
+
 export async function discoverCopilotModels(params: {
   baseUrl: string;
   copilotToken: string;
   knownModelIds?: Set<string>;
   extraHeaders?: Record<string, string>;
+  allowPrivateNetwork?: boolean;
+  lookupFn?: LookupFn;
 }): Promise<ModelDefinitionConfig[]> {
-  const { baseUrl, copilotToken, knownModelIds, extraHeaders } = params;
+  const { baseUrl, copilotToken, knownModelIds, extraHeaders, allowPrivateNetwork, lookupFn } =
+    params;
 
   const url = `${baseUrl.replace(/\/+$/, "")}/models`;
-  const res = await fetch(url, {
-    headers: {
-      Authorization: `Bearer ${copilotToken}`,
-      ...COPILOT_IDE_HEADERS,
-      ...extraHeaders,
+  const { response: res, release } = await fetchWithSsrFGuard({
+    url,
+    init: {
+      headers: {
+        Authorization: `Bearer ${copilotToken}`,
+        ...COPILOT_IDE_HEADERS,
+        ...extraHeaders,
+      },
     },
-    signal: AbortSignal.timeout(10_000),
+    policy: ssrfPolicyFromCopilotBaseUrl(baseUrl, allowPrivateNetwork),
+    lookupFn,
+    timeoutMs: 10_000,
+    auditContext: "github-copilot.model-discovery",
   });
 
-  if (!res.ok) {
-    return [];
-  }
+  try {
+    if (!res.ok) {
+      return [];
+    }
 
-  const body = (await res.json()) as CopilotModelsResponse;
-  if (!Array.isArray(body.data)) {
-    return [];
-  }
+    const body = (await res.json()) as CopilotModelsResponse;
+    if (!Array.isArray(body.data)) {
+      return [];
+    }
 
-  return body.data
-    .filter((m) => {
-      // Must have an id
-      if (!m.id) {
-        return false;
-      }
-      // Only enabled models
-      if (m.policy?.state && m.policy.state !== "enabled") {
-        return false;
-      }
-      // Only chat-capable models (skip embeddings, etc.)
-      if (m.capabilities?.type && m.capabilities.type !== "chat") {
-        return false;
-      }
-      // Skip models already in the built-in list
-      if (knownModelIds?.has(m.id)) {
-        return false;
-      }
-      return true;
-    })
-    .toSorted((a, b) => a.id.localeCompare(b.id))
-    .map(buildModelDefinition);
+    return body.data
+      .filter((m) => {
+        // Must have an id
+        if (!m.id) {
+          return false;
+        }
+        // Only enabled models
+        if (m.policy?.state && m.policy.state !== "enabled") {
+          return false;
+        }
+        // Only chat-capable models (skip embeddings, etc.)
+        if (m.capabilities?.type && m.capabilities.type !== "chat") {
+          return false;
+        }
+        // Skip models already in the built-in list
+        if (knownModelIds?.has(m.id)) {
+          return false;
+        }
+        return true;
+      })
+      .toSorted((a, b) => a.id.localeCompare(b.id))
+      .map(buildModelDefinition);
+  } finally {
+    await release();
+  }
 }

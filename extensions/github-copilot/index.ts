@@ -422,6 +422,7 @@ export default definePluginEntry({
                 copilotToken,
                 knownModelIds: new Set(getDefaultCopilotModelIds()),
                 extraHeaders,
+                allowPrivateNetwork: configuredProvider?.request?.allowPrivateNetwork === true,
               });
             } catch {
               // Best-effort discovery: keep the static catalog usable on errors.

@@ -186,6 +186,9 @@ describe("github-copilot plugin", () => {
               headers: {
                 "X-Proxy-Auth": "proxy-token",
               },
+              request: {
+                allowPrivateNetwork: true,
+              },
             },
           },
         },
@@ -202,6 +205,7 @@ describe("github-copilot plugin", () => {
         extraHeaders: {
           "X-Proxy-Auth": "proxy-token",
         },
+        allowPrivateNetwork: true,
       }),
     );
     expect(result?.provider.models).toEqual([
