@@ -628,7 +628,7 @@ describe("loadModelCatalog", () => {
         name: "GPT-5.3 Codex Spark",
         reasoning: true,
         contextWindow: 128000,
-        input: ["text", "image"],
+        input: ["text", "image", "audio"],
       },
       {
         id: "gpt-5.3-codex-spark",
@@ -636,7 +636,7 @@ describe("loadModelCatalog", () => {
         name: "GPT-5.3 Codex Spark",
         reasoning: true,
         contextWindow: 128000,
-        input: ["text", "image"],
+        input: ["text", "image", "audio"],
       },
       {
         id: "gpt-5.3-codex-spark",
@@ -705,7 +705,7 @@ describe("loadModelCatalog", () => {
         name: "GPT-5.2",
         reasoning: true,
         contextWindow: 1_050_000,
-        input: ["text", "image"],
+        input: ["text", "image", "audio"],
       },
       {
         id: "gpt-5.2-pro",
@@ -713,7 +713,7 @@ describe("loadModelCatalog", () => {
         name: "GPT-5.2 Pro",
         reasoning: true,
         contextWindow: 1_050_000,
-        input: ["text", "image"],
+        input: ["text", "image", "audio"],
       },
       {
         id: "gpt-5-mini",
@@ -721,7 +721,7 @@ describe("loadModelCatalog", () => {
         name: "GPT-5 mini",
         reasoning: true,
         contextWindow: 400_000,
-        input: ["text", "image"],
+        input: ["text", "image", "audio"],
       },
       {
         id: "gpt-5-nano",
@@ -729,7 +729,7 @@ describe("loadModelCatalog", () => {
         name: "GPT-5 nano",
         reasoning: true,
         contextWindow: 400_000,
-        input: ["text", "image"],
+        input: ["text", "image", "audio"],
       },
       {
         id: "gpt-5.4",
@@ -737,7 +737,7 @@ describe("loadModelCatalog", () => {
         name: "GPT-5.3 Codex",
         reasoning: true,
         contextWindow: 272000,
-        input: ["text", "image"],
+        input: ["text", "image", "audio"],
       },
     ]);
 
@@ -760,7 +760,7 @@ describe("loadModelCatalog", () => {
         provider: "kilocode",
         id: "google/gemini-3-pro-preview",
         name: "Gemini 3 Pro Preview",
-        input: ["text", "image"],
+        input: ["text", "image", "audio"],
         reasoning: true,
         contextWindow: 1048576,
       },
@@ -968,7 +968,7 @@ describe("loadModelCatalog", () => {
         id: "kilo/auto",
         name: "Configured Kilo Auto",
         reasoning: true,
-        input: ["text", "image"],
+        input: ["text", "image", "audio"],
         contextWindow: 1000000,
       },
     ]);

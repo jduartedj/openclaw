@@ -1710,7 +1710,7 @@ describe("model-selection", () => {
           id: "claude-opus-4-6",
           name: "Claude Opus 4.6",
           reasoning: true,
-          input: ["text", "image"],
+          input: ["text", "image", "audio"],
           cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
           contextWindow: 200000,
           maxTokens: 4096,

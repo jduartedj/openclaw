@@ -372,7 +372,7 @@ describe("Ollama provider", () => {
           id: "gpt-oss:20b",
           name: "GPT-OSS 20B",
           reasoning: false,
-          input: ["text"] as Array<"text" | "image">,
+          input: ["text"] as Array<"text" | "image" | "audio">,
           cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
           contextWindow: 8192,
           maxTokens: 81920,

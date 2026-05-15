@@ -28,10 +28,18 @@ function containsCopilotContentType(value: unknown, type: string): boolean {
 export function hasCopilotVisionInput(messages: Context["messages"]): boolean {
   return messages.some((message) => {
     if (message.role === "user" && Array.isArray(message.content)) {
-      return message.content.some((item) => containsCopilotContentType(item, "image"));
+      return message.content.some(
+        (item) =>
+          containsCopilotContentType(item, "image") &&
+          !(item as { mimeType?: string }).mimeType?.startsWith("audio/"),
+      );
     }
     if (message.role === "toolResult" && Array.isArray(message.content)) {
-      return message.content.some((item) => containsCopilotContentType(item, "image"));
+      return message.content.some(
+        (item) =>
+          containsCopilotContentType(item, "image") &&
+          !(item as { mimeType?: string }).mimeType?.startsWith("audio/"),
+      );
     }
     return false;
   });

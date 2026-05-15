@@ -491,10 +491,51 @@ function extractImageUrls(content: unknown): string[] {
   return urls;
 }
 
+function resolveAudioInputPart(part: unknown): string | undefined {
+  if (!part || typeof part !== "object") {
+    return undefined;
+  }
+  const inputAudio = (part as { input_audio?: unknown }).input_audio;
+  if (typeof inputAudio === "string") {
+    const trimmed = inputAudio.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  }
+  if (!inputAudio || typeof inputAudio !== "object") {
+    return undefined;
+  }
+  const rawData = (inputAudio as { data?: unknown }).data;
+  if (typeof rawData !== "string") {
+    return undefined;
+  }
+  const trimmed = rawData.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function extractAudioInputs(content: unknown): string[] {
+  if (!Array.isArray(content)) {
+    return [];
+  }
+  const audioInputs: string[] = [];
+  for (const part of content) {
+    if (!part || typeof part !== "object") {
+      continue;
+    }
+    if ((part as { type?: unknown }).type !== "input_audio") {
+      continue;
+    }
+    const audioData = resolveAudioInputPart(part);
+    if (audioData) {
+      audioInputs.push(audioData);
+    }
+  }
+  return audioInputs;
+}
+
 type ActiveTurnContext = {
   activeTurnIndex: number;
   activeUserMessageIndex: number;
   urls: string[];
+  audioInputs: string[];
 };
 
 function parseImageUrlToSource(url: string): InputImageSource {
@@ -541,9 +582,10 @@ function resolveActiveTurnContext(messagesUnknown: unknown): ActiveTurnContext {
       activeTurnIndex: i,
       activeUserMessageIndex: normalizedRole === "user" ? i : -1,
       urls: normalizedRole === "user" ? extractImageUrls(msg.content) : [],
+      audioInputs: normalizedRole === "user" ? extractAudioInputs(msg.content) : [],
     };
   }
-  return { activeTurnIndex: -1, activeUserMessageIndex: -1, urls: [] };
+  return { activeTurnIndex: -1, activeUserMessageIndex: -1, urls: [], audioInputs: [] };
 }
 
 async function resolveImagesForRequest(
@@ -608,6 +650,7 @@ function buildAgentPrompt(
     const role = normalizeOptionalString(msg.role) ?? "";
     const content = extractTextContent(msg.content).trim();
     const hasImage = extractImageUrls(msg.content).length > 0;
+    const hasAudio = extractAudioInputs(msg.content).length > 0;
     if (!role) {
       continue;
     }
@@ -627,11 +670,18 @@ function buildAgentPrompt(
     const assistantToolCallsSummary =
       assistantToolCalls.length > 0 ? renderAssistantToolCalls(assistantToolCalls) : "";
 
-    // Keep the image-only placeholder scoped to the active user turn so we don't
-    // mention historical image-only turns whose bytes are intentionally not replayed.
+    // Keep the media-only placeholders scoped to the active user turn so we don't
+    // mention historical media-only turns whose bytes are intentionally not replayed.
     const baseMessageContent =
-      normalizedRole === "user" && !content && hasImage && i === activeUserMessageIndex
-        ? IMAGE_ONLY_USER_MESSAGE
+      normalizedRole === "user" &&
+      !content &&
+      (hasImage || hasAudio) &&
+      i === activeUserMessageIndex
+        ? hasImage && hasAudio
+          ? "User sent image(s) and audio with no text."
+          : hasImage
+            ? IMAGE_ONLY_USER_MESSAGE
+            : "User sent audio with no text."
         : content;
     const messageContent = [baseMessageContent, assistantToolCallsSummary]
       .filter((part): part is string => Boolean(part))

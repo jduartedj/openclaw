@@ -22,7 +22,7 @@ describe("resolveProviderPluginLookupKey", () => {
             name: "Gemini 3 Pro",
             api: "google-generative-ai",
             reasoning: true,
-            input: ["text", "image"],
+            input: ["text", "image", "audio"],
             cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
             contextWindow: 1_048_576,
             maxTokens: 65_536,

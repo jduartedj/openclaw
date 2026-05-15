@@ -30,7 +30,7 @@ import { normalizeProviderId } from "./provider-id.js";
 const log = createSubsystemLogger("model-catalog");
 const PI_CUSTOM_MODEL_DEFAULT_CONTEXT_WINDOW = 128_000;
 
-export type { ModelCatalogEntry, ModelInputType } from "./model-catalog.types.js";
+export type { ModelCatalogEntry, ModelInputType, ModelOutputType } from "./model-catalog.types.js";
 export {
   findModelCatalogEntry,
   findModelInCatalog,
@@ -45,6 +45,7 @@ type DiscoveredModel = {
   contextTokens?: number;
   reasoning?: boolean;
   input?: ModelInputType[];
+  output?: ModelOutputType[];
   compat?: ModelCatalogEntry["compat"];
 };
 
@@ -468,6 +469,10 @@ export async function loadModelCatalog(params?: {
       }
       logStage("configured-models-merged", `entries=${models.length}`);
 
+      // Patch models to add native audio input support
+      patchModelsWithAudioSupport(models);
+      logStage("audio-support-patched");
+
       if (models.length === 0) {
         // If we found nothing, don't cache this result so we can try again.
         if (!readOnly) {
@@ -514,4 +519,100 @@ export function modelSupportsVision(entry: ModelCatalogEntry | undefined): boole
  */
 export function modelSupportsDocument(entry: ModelCatalogEntry | undefined): boolean {
   return modelCatalogEntrySupportsInput(entry, "document");
+}
+
+/**
+ * Check if a model supports native audio input based on its catalog entry.
+ */
+export function modelSupportsAudio(entry: ModelCatalogEntry | undefined): boolean {
+  return modelCatalogEntrySupportsInput(entry, "audio");
+}
+
+/**
+ * Check if a model can emit native audio output based on its catalog entry.
+ * Audio output requires the model to support OpenAI-style `modalities: ["audio"]`
+ * (e.g. `gpt-4o-audio-preview`, `gpt-4o-realtime-preview`).
+ */
+export function modelOutputsAudio(entry: ModelCatalogEntry | undefined): boolean {
+  return entry?.output?.includes("audio") ?? false;
+}
+
+/**
+ * Models that can emit audio as output via OpenAI-style `modalities: ["audio"]`.
+ * Used both by the catalog patcher and by the transport layer at request time.
+ */
+const AUDIO_OUTPUT_MODEL_IDS = new Set([
+  "gpt-4o-audio-preview",
+  "gpt-4o-audio-preview-2024-10-01",
+  "gpt-4o-audio-preview-2024-12-17",
+  "gpt-4o-audio-preview-2025-06-03",
+  "gpt-4o-mini-audio-preview",
+  "gpt-4o-mini-audio-preview-2024-12-17",
+  "gpt-4o-realtime-preview",
+  "gpt-4o-realtime-preview-2024-10-01",
+  "gpt-4o-realtime-preview-2024-12-17",
+  "gpt-4o-mini-realtime-preview",
+]);
+
+/**
+ * Synchronous lookup: does this model id produce audio output?
+ * Use when only an id is available (e.g. inside a streaming transport that
+ * doesn't have access to the async catalog).
+ */
+export function isAudioOutputModelId(modelId: string | undefined): boolean {
+  if (!modelId) {
+    return false;
+  }
+  return AUDIO_OUTPUT_MODEL_IDS.has(modelId);
+}
+
+/**
+ * Patch built-in models to add native audio input support where appropriate.
+ * This adds "audio" to the input array for models that support native audio input.
+ */
+function patchModelsWithAudioSupport(models: ModelCatalogEntry[]): void {
+  const audioCapableModels = new Set([
+    // OpenAI models with native audio support
+    "gpt-4o",
+    "gpt-4o-2024-05-13",
+    "gpt-4o-2024-08-06",
+    "gpt-4o-2024-11-20",
+    "gpt-4o-mini",
+    "gpt-4o-mini-2024-07-18",
+    "gpt-4o-audio-preview",
+
+    // Google models with native audio support
+    "gemini-2.0-flash",
+    "gemini-2.5-pro",
+    "gemini-2.5-flash",
+  ]);
+
+  for (const model of models) {
+    if (audioCapableModels.has(model.id) && model.input && !model.input.includes("audio")) {
+      model.input = [...model.input, "audio"];
+    }
+    if (AUDIO_OUTPUT_MODEL_IDS.has(model.id)) {
+      const baseOutput: ModelOutputType[] = model.output ?? ["text"];
+      if (!baseOutput.includes("audio")) {
+        model.output = [...baseOutput, "audio"];
+      }
+    }
+  }
+}
+
+/**
+ * Find a model in the catalog by provider and model ID.
+ */
+export function findModelInCatalog(
+  catalog: ModelCatalogEntry[],
+  provider: string,
+  modelId: string,
+): ModelCatalogEntry | undefined {
+  const normalizedProvider = normalizeProviderId(provider);
+  const normalizedModelId = normalizeLowercaseStringOrEmpty(modelId);
+  return catalog.find(
+    (entry) =>
+      normalizeProviderId(entry.provider) === normalizedProvider &&
+      normalizeLowercaseStringOrEmpty(entry.id) === normalizedModelId,
+  );
 }

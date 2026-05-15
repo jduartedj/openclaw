@@ -413,7 +413,13 @@ function convertGoogleMessages(model: GoogleTransportModel, context: Context) {
                 },
               },
         )
-        .filter((item) => model.input.includes("image") || !("inlineData" in item));
+        .filter((item) => {
+          if (!("inlineData" in item)) return true;
+          const mi = model.input;
+          const mime = item.inlineData?.mimeType ?? "";
+          if (typeof mime === "string" && mime.startsWith("audio/")) return mi.includes("audio");
+          return mi.includes("image");
+        });
       if (parts.length === 0) {
         parts.push({ text: " " });
       }
@@ -482,16 +488,23 @@ function convertGoogleMessages(model: GoogleTransportModel, context: Context) {
         )
         .map((item) => item.text)
         .join("\n");
-      const imageContent = model.input.includes("image")
+      const googleModelInput = model.input as Array<"text" | "image" | "audio">;
+      const imageContent = googleModelInput.includes("image")
         ? msg.content.filter(
             (item): item is Extract<(typeof msg.content)[number], { type: "image" }> =>
-              item.type === "image",
+              item.type === "image" && !item.mimeType?.startsWith("audio/"),
+          )
+        : [];
+      const audioContent = googleModelInput.includes("audio")
+        ? msg.content.filter(
+            (item): item is Extract<(typeof msg.content)[number], { type: "image" }> =>
+              item.type === "image" && (item.mimeType?.startsWith("audio/") ?? false),
           )
         : [];
       const responseValue = textResult
         ? sanitizeTransportPayloadText(textResult)
-        : imageContent.length > 0
-          ? "(see attached image)"
+        : imageContent.length > 0 || audioContent.length > 0
+          ? "(see attached media)"
           : "";
       const imageParts = imageContent.map((imageBlock) => ({
         inlineData: {
@@ -499,12 +512,19 @@ function convertGoogleMessages(model: GoogleTransportModel, context: Context) {
           data: imageBlock.data,
         },
       }));
+      const audioParts = audioContent.map((audioBlock) => ({
+        inlineData: {
+          mimeType: audioBlock.mimeType,
+          data: audioBlock.data,
+        },
+      }));
+      const allMediaParts = [...imageParts, ...audioParts];
       const functionResponse = {
         functionResponse: {
           name: msg.toolName,
           response: msg.isError ? { error: responseValue } : { output: responseValue },
-          ...(supportsMultimodalFunctionResponse(model.id) && imageParts.length > 0
-            ? { parts: imageParts }
+          ...(supportsMultimodalFunctionResponse(model.id) && allMediaParts.length > 0
+            ? { parts: allMediaParts }
             : {}),
           ...(requiresToolCallId(model.id) ? { id: msg.toolCallId } : {}),
         },

@@ -258,7 +258,7 @@ function buildOpenAICompatibleSelfHostedProviderConfig(params: {
   baseUrl: string;
   providerApiKey: string;
   modelId: string;
-  input?: Array<"text" | "image">;
+  input?: Array<"text" | "image" | "audio">;
   reasoning?: boolean;
   contextWindow?: number;
   maxTokens?: number;
@@ -306,7 +306,7 @@ type OpenAICompatibleSelfHostedProviderSetupParams = {
   defaultBaseUrl: string;
   defaultApiKeyEnvVar: string;
   modelPlaceholder: string;
-  input?: Array<"text" | "image">;
+  input?: Array<"text" | "image" | "audio">;
   reasoning?: boolean;
   contextWindow?: number;
   maxTokens?: number;
@@ -456,7 +456,7 @@ export async function configureOpenAICompatibleSelfHostedProviderNonInteractive(
   defaultBaseUrl: string;
   defaultApiKeyEnvVar: string;
   modelPlaceholder: string;
-  input?: Array<"text" | "image">;
+  input?: Array<"text" | "image" | "audio">;
   reasoning?: boolean;
   contextWindow?: number;
   maxTokens?: number;

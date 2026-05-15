@@ -37,6 +37,7 @@ import {
   resolveModelSseDebugMode,
 } from "./model-transport-debug.js";
 import { formatModelTransportDebugBaseUrl } from "./model-transport-url.js";
+import { isAudioOutputModelId } from "./model-catalog.js";
 import { detectOpenAICompletionsCompat } from "./openai-completions-compat.js";
 import {
   flattenCompletionMessagesToStringContent,
@@ -113,7 +114,21 @@ type OpenAICompletionsOptions = BaseStreamOptions & {
       };
   reasoning?: OpenAIReasoningEffort;
   reasoningEffort?: OpenAIReasoningEffort;
+  /**
+   * Audio output configuration. Only applied when the model supports audio output
+   * (see `isAudioOutputModelId`). Pass `false` to suppress audio output even on
+   * an audio-capable model.
+   */
+  audioOutput?:
+    | false
+    | {
+        voice?: string;
+        format?: "wav" | "mp3" | "flac" | "opus" | "pcm16";
+      };
 };
+
+const DEFAULT_AUDIO_OUTPUT_VOICE = "alloy";
+const DEFAULT_AUDIO_OUTPUT_FORMAT = "mp3";
 
 type OpenAIModeCompatInput = Omit<ModelCompatConfig, "thinkingFormat"> & {
   thinkingFormat?: string;
@@ -123,7 +138,7 @@ type OpenAIModeModel = Omit<Model<Api>, "compat"> & {
   compat?: OpenAIModeCompatInput | null;
 };
 
-type MutableAssistantOutput = {
+export type MutableAssistantOutput = {
   role: "assistant";
   content: Array<Record<string, unknown>>;
   api: Api;
@@ -398,6 +413,34 @@ export function resolveAzureOpenAIApiVersion(env = process.env): string {
   return env.AZURE_OPENAI_API_VERSION?.trim() || DEFAULT_AZURE_OPENAI_API_VERSION;
 }
 
+function mapAudioFormat(mimeType: string): "wav" | "mp3" {
+  if (mimeType === "audio/wav" || mimeType === "audio/x-wav") {
+    return "wav";
+  }
+  return "mp3"; // safest universal default
+}
+
+/**
+ * Inverse of `mapAudioFormat`: given an OpenAI audio output `format` (the one we
+ * sent in the request), return the corresponding MIME type for storage/playback.
+ */
+function audioMimeForFormat(format: string): string {
+  switch (format) {
+    case "wav":
+      return "audio/wav";
+    case "mp3":
+      return "audio/mpeg";
+    case "flac":
+      return "audio/flac";
+    case "opus":
+      return "audio/opus";
+    case "pcm16":
+      return "audio/pcm";
+    default:
+      return "audio/mpeg";
+  }
+}
+
 function shortHash(value: string): string {
   let hash = 0;
   for (let i = 0; i < value.length; i += 1) {
@@ -497,17 +540,32 @@ function convertResponsesMessages(
           content: [{ type: "input_text", text: sanitizeTransportPayloadText(msg.content) }],
         });
       } else {
-        const content = (
-          msg.content.map((item) =>
-            item.type === "text"
-              ? { type: "input_text", text: sanitizeTransportPayloadText(item.text) }
-              : {
-                  type: "input_image",
-                  detail: "auto",
-                  image_url: `data:${item.mimeType};base64,${item.data}`,
-                },
-          ) as ResponseInputMessageContentList
-        ).filter((item) => model.input.includes("image") || item.type !== "input_image");
+        const mi = model.input as Array<"text" | "image" | "audio">;
+        const rawContent = msg.content.map((item) => {
+          if (item.type === "text") {
+            return { type: "input_text", text: sanitizeTransportPayloadText(item.text) };
+          }
+          // Audio-as-ImageContent: discriminate by MIME
+          if (item.mimeType?.startsWith("audio/")) {
+            return {
+              type: "input_audio",
+              input_audio: {
+                data: item.data,
+                format: mapAudioFormat(item.mimeType),
+              },
+            };
+          }
+          return {
+            type: "input_image",
+            detail: "auto",
+            image_url: `data:${item.mimeType};base64,${item.data}`,
+          };
+        });
+        const content = rawContent.filter((item) => {
+          if (item.type === "input_image") return mi.includes("image");
+          if (item.type === "input_audio") return mi.includes("audio");
+          return true;
+        }) as ResponseInputMessageContentList;
         if (content.length > 0) {
           messages.push({ role: "user", content });
         }
@@ -576,23 +634,48 @@ function convertResponsesMessages(
         .filter((item) => item.type === "text")
         .map((item) => item.text)
         .join("\n");
-      const hasImages = msg.content.some((item) => item.type === "image");
+      const modelInput = model.input as Array<"text" | "image" | "audio">;
+      const hasImages = msg.content.some(
+        (item) => item.type === "image" && !item.mimeType?.startsWith("audio/"),
+      );
+      const hasAudio = msg.content.some(
+        (item) => item.type === "image" && item.mimeType?.startsWith("audio/"),
+      );
       const [callId] = msg.toolCallId.split("|");
       messages.push({
         type: "function_call_output",
         call_id: callId,
         output:
-          hasImages && model.input.includes("image")
+          (hasImages && modelInput.includes("image")) || (hasAudio && modelInput.includes("audio"))
             ? ([
                 ...(textResult
                   ? [{ type: "input_text", text: sanitizeTransportPayloadText(textResult) }]
                   : []),
                 ...msg.content
-                  .filter((item) => item.type === "image")
+                  .filter(
+                    (item): item is typeof item & { type: "image" } =>
+                      item.type === "image" &&
+                      !item.mimeType?.startsWith("audio/") &&
+                      modelInput.includes("image"),
+                  )
                   .map((item) => ({
                     type: "input_image",
                     detail: "auto",
                     image_url: `data:${item.mimeType};base64,${item.data}`,
+                  })),
+                ...msg.content
+                  .filter(
+                    (item): item is typeof item & { type: "image" } =>
+                      item.type === "image" &&
+                      (item.mimeType?.startsWith("audio/") ?? false) &&
+                      modelInput.includes("audio"),
+                  )
+                  .map((item) => ({
+                    type: "input_audio",
+                    input_audio: {
+                      data: item.data,
+                      format: mapAudioFormat(item.mimeType ?? "audio/mp3"),
+                    },
                   })),
               ] as ResponseFunctionCallOutputItemList)
             : sanitizeTransportPayloadText(textResult || "(see attached image)"),
@@ -1733,6 +1816,12 @@ export function createOpenAICompletionsTransportStreamFn(): StreamFn {
           enforceCodeModeResponsesToolSurface(params);
           assertCodeModeResponsesToolSurface(params);
         }
+        // Stash the requested audio output format so the stream consumer can tag
+        // captured audio blocks with the correct MIME type.
+        const audioParam = params.audio as { format?: string } | undefined;
+        if (audioParam && typeof audioParam.format === "string") {
+          (output as unknown as { audioFormat?: string }).audioFormat = audioParam.format;
+        }
         const responseStream = (await client.chat.completions.create(
           params as never,
           buildOpenAISdkRequestOptions(model, options?.signal),
@@ -1755,7 +1844,7 @@ export function createOpenAICompletionsTransportStreamFn(): StreamFn {
   };
 }
 
-async function processOpenAICompletionsStream(
+export async function processOpenAICompletionsStream(
   responseStream: AsyncIterable<ChatCompletionChunk>,
   output: MutableAssistantOutput,
   model: Model<Api>,
@@ -1777,6 +1866,14 @@ async function processOpenAICompletionsStream(
         arguments: Record<string, unknown>;
         partialArgs: string;
         thoughtSignature?: string;
+      }
+    | {
+        type: "audio";
+        id?: string;
+        data: string;
+        transcript: string;
+        mimeType: string;
+        expiresAt?: number;
       }
     | null = null;
   let pendingPostToolCallDeltas: CompletionsReasoningDelta[] = [];
@@ -1965,6 +2062,55 @@ async function processOpenAICompletionsStream(
       } else {
         appendThinkingDelta(reasoningDelta);
       }
+    }
+
+    // Audio output (gpt-4o-audio-preview / realtime). Not in OpenAI SDK typings;
+    // delta.audio = { id?, data?, transcript?, expires_at? } where data is base64
+    // chunks of the chosen format and transcript is the spoken text.
+    const audioDelta = (choiceDelta as Record<string, unknown>).audio as
+      | { id?: string; data?: string; transcript?: string; expires_at?: number }
+      | undefined;
+    if (audioDelta && (audioDelta.data || audioDelta.transcript || audioDelta.id)) {
+      if (!currentBlock || currentBlock.type !== "audio") {
+        finishCurrentBlock();
+        const requestedFormat =
+          (output as unknown as { audioFormat?: string }).audioFormat ?? "mp3";
+        currentBlock = {
+          type: "audio",
+          id: audioDelta.id,
+          data: "",
+          transcript: "",
+          mimeType: audioMimeForFormat(requestedFormat),
+          expiresAt: audioDelta.expires_at,
+        };
+        output.content.push(currentBlock as unknown as Record<string, unknown>);
+        stream.push({ type: "audio_start", contentIndex: blockIndex(), partial: output });
+      }
+      if (audioDelta.id && !currentBlock.id) {
+        currentBlock.id = audioDelta.id;
+      }
+      if (typeof audioDelta.expires_at === "number") {
+        currentBlock.expiresAt = audioDelta.expires_at;
+      }
+      if (typeof audioDelta.data === "string" && audioDelta.data.length > 0) {
+        currentBlock.data += audioDelta.data;
+        stream.push({
+          type: "audio_delta",
+          contentIndex: blockIndex(),
+          delta: audioDelta.data,
+          partial: output,
+        });
+      }
+      if (typeof audioDelta.transcript === "string" && audioDelta.transcript.length > 0) {
+        currentBlock.transcript += audioDelta.transcript;
+        stream.push({
+          type: "audio_transcript_delta",
+          contentIndex: blockIndex(),
+          delta: audioDelta.transcript,
+          partial: output,
+        });
+      }
+      continue;
     }
     if (choiceDelta.tool_calls && choiceDelta.tool_calls.length > 0) {
       for (const toolCall of choiceDelta.tool_calls) {
@@ -2672,6 +2818,18 @@ export function buildOpenAICompletionsParams(
     !omitGpt54MiniToolReasoningEffort
   ) {
     params.reasoning_effort = resolvedCompletionsReasoningEffort;
+  }
+
+  // Audio output: when the model supports `modalities: ["audio"]` and the caller
+  // hasn't explicitly disabled it, request both text and audio modalities so we
+  // capture the spoken response (transcript still arrives as text content).
+  if (options?.audioOutput !== false && isAudioOutputModelId(model.id)) {
+    const audioCfg = typeof options?.audioOutput === "object" ? options.audioOutput : undefined;
+    params.modalities = ["text", "audio"];
+    params.audio = {
+      voice: audioCfg?.voice ?? DEFAULT_AUDIO_OUTPUT_VOICE,
+      format: audioCfg?.format ?? DEFAULT_AUDIO_OUTPUT_FORMAT,
+    };
   }
   return params;
 }

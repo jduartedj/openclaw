@@ -61,7 +61,7 @@ interface OpenRouterApiModel {
 
 export interface OpenRouterModelCapabilities {
   name: string;
-  input: Array<"text" | "image">;
+  input: Array<"text" | "image" | "audio">;
   reasoning: boolean;
   supportsTools?: boolean;
   contextWindow: number;
@@ -159,11 +159,14 @@ let fetchInFlight: Promise<void> | undefined;
 const skipNextMissRefresh = new Set<string>();
 
 function parseModel(model: OpenRouterApiModel): OpenRouterModelCapabilities {
-  const input: Array<"text" | "image"> = ["text"];
+  const input: Array<"text" | "image" | "audio"> = ["text"];
   const modality = model.architecture?.modality ?? model.modality ?? "";
   const inputModalities = modality.split("->")[0] ?? "";
   if (inputModalities.includes("image")) {
     input.push("image");
+  }
+  if (inputModalities.includes("audio")) {
+    input.push("audio");
   }
   const supportedParameters = Array.isArray(model.supported_parameters)
     ? model.supported_parameters

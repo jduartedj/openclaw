@@ -324,9 +324,19 @@ function convertAnthropicMessages(
               },
             },
       );
-      let filteredBlocks = model.input.includes("image")
-        ? blocks
-        : blocks.filter((block) => block.type !== "image");
+      let filteredBlocks = blocks.filter((block) => {
+        if (block.type === "text") return true;
+        if (block.type === "image") {
+          const mediaType =
+            "source" in block
+              ? (block.source as { media_type?: string } | undefined)?.media_type
+              : undefined;
+          const isAudio = typeof mediaType === "string" && mediaType.startsWith("audio/");
+          if (isAudio) return (model.input as Array<"text" | "image" | "audio">).includes("audio");
+          return (model.input as Array<"text" | "image" | "audio">).includes("image");
+        }
+        return false;
+      });
       filteredBlocks = filteredBlocks.filter(
         (block) => block.type !== "text" || block.text.trim().length > 0,
       );

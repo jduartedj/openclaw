@@ -920,6 +920,40 @@ export async function runCapability(params: {
   // Skip image understanding when the primary model supports vision natively.
   // The image will be injected directly into the model context instead.
   const activeProvider = params.activeModel?.provider?.trim();
+  if (capability === "audio" && activeProvider) {
+    const { findModelInCatalog, loadModelCatalog, modelSupportsAudio } =
+      await loadModelCatalogApi();
+    const catalog = await loadModelCatalog({ config: cfg });
+    const entry = findModelInCatalog(catalog, activeProvider, params.activeModel?.model ?? "");
+    if (modelSupportsAudio(entry)) {
+      if (shouldLogVerbose()) {
+        logVerbose("Skipping audio transcription: primary model supports audio natively");
+      }
+      const model = params.activeModel?.model?.trim();
+      const reason = "primary model supports audio natively";
+      return {
+        outputs: [],
+        decision: {
+          capability,
+          outcome: "skipped",
+          attachments: selected.map((item) => {
+            const attempt = {
+              type: "provider" as const,
+              provider: activeProvider,
+              model: model || undefined,
+              outcome: "skipped" as const,
+              reason,
+            };
+            return {
+              attachmentIndex: item.index,
+              attempts: [attempt],
+              chosen: attempt,
+            };
+          }),
+        },
+      };
+    }
+  }
   if (
     capability === "image" &&
     activeProvider &&
